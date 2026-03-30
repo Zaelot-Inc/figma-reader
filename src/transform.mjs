@@ -164,12 +164,16 @@ function classifyNode(node) {
 
 const GENERIC_NAMES = /^(Frame|Group|Rectangle|Vector|Ellipse|Line|Instance|Component)\s*\d*$/i;
 
+/**
+ * Try to assign a semantic name deterministically.
+ * Returns { name, confident } — confident=false means the name is a guess.
+ */
 function semanticName(node, index) {
   const name = node.name || "";
 
   // If the designer named it something meaningful, keep it
   if (!GENERIC_NAMES.test(name) && name.length > 0) {
-    return toCamelCase(name);
+    return { name: toCamelCase(name), confident: true };
   }
 
   // Heuristics based on node type and context
@@ -177,22 +181,28 @@ function semanticName(node, index) {
 
   if (type === "text") {
     const fontSize = node.style?.fontSize || 0;
-    if (fontSize >= 20) return "title";
-    if (fontSize >= 16) return "heading";
-    if (fontSize >= 14) return "body";
-    if (fontSize >= 12) return "caption";
-    return `text${index > 0 ? index : ""}`;
+    const content = node.characters || "";
+    // If text has actual content, use it as a hint
+    if (content && content.length <= 20 && !/^\s*$/.test(content)) {
+      return { name: toCamelCase(content), confident: true };
+    }
+    if (fontSize >= 20) return { name: "title", confident: true };
+    if (fontSize >= 16) return { name: "heading", confident: true };
+    if (fontSize >= 14) return { name: "body", confident: true };
+    if (fontSize >= 12) return { name: "caption", confident: true };
+    return { name: `text${index > 0 ? index : ""}`, confident: false };
   }
 
   if (type === "icon") {
-    return `icon${index > 0 ? index : ""}`;
+    return { name: `icon${index > 0 ? index : ""}`, confident: false };
   }
 
   if (type === "image") {
-    return `image${index > 0 ? index : ""}`;
+    return { name: `image${index > 0 ? index : ""}`, confident: true };
   }
 
-  return `container${index > 0 ? index : ""}`;
+  // Container with children — guess is low confidence
+  return { name: `container${index > 0 ? index : ""}`, confident: false };
 }
 
 function toCamelCase(str) {
@@ -286,9 +296,12 @@ function findNodesByType(node, type) {
 
 // ── Child transformation ──────────────────────────────────────
 
+// Collects nodes where deterministic naming failed
+const unresolvedNodes = [];
+
 function transformChild(node, index) {
   const type = classifyNode(node);
-  const name = semanticName(node, index);
+  const { name, confident } = semanticName(node, index);
 
   const result = {
     type,
@@ -297,6 +310,11 @@ function transformChild(node, index) {
     styles: {},
     children: [],
   };
+
+  if (!confident) {
+    result._unresolved = true;
+    unresolvedNodes.push({ path: name, type, figmaName: node.name, figmaType: node.type, childCount: node.children?.length || 0 });
+  }
 
   // Type-specific extraction
   if (type === "text") {
@@ -341,13 +359,18 @@ function transformChild(node, index) {
  * Transform a raw Figma node into a clean blueprint.
  * Pure deterministic logic — no AI calls.
  *
+ * Returns { blueprint, unresolved } where unresolved is a list of
+ * nodes that got generic names (e.g., "container0", "icon1").
+ * Pass unresolved to resolveNames() with a Claude client to fix them.
+ *
  * @param {object} node - Raw Figma node from the API
- * @returns {object} Clean blueprint
+ * @returns {{ blueprint: object, unresolved: Array }}
  */
 export function transform(node) {
-  const isComponentSet = node.type === "COMPONENT_SET";
+  // Reset unresolved collector
+  unresolvedNodes.length = 0;
 
-  // For component sets, use the first variant as the base template
+  const isComponentSet = node.type === "COMPONENT_SET";
   const baseNode = isComponentSet && node.children?.length > 0 ? node.children[0] : node;
 
   const blueprint = {
@@ -377,15 +400,67 @@ export function transform(node) {
     },
   };
 
-  // Transform children from the base node
   if (baseNode.children) {
     blueprint.children = baseNode.children.map((child, i) => transformChild(child, i));
   }
 
-  // Extract variant-specific styles
   if (isComponentSet) {
     blueprint.variantStyles = extractVariantStyles(node);
   }
+
+  return { blueprint, unresolved: [...unresolvedNodes] };
+}
+
+/**
+ * Resolve generic names in a blueprint using Haiku.
+ * Only calls the API for the unresolved nodes — minimal tokens.
+ *
+ * @param {object} blueprint - Blueprint from transform()
+ * @param {Array} unresolved - Unresolved nodes from transform()
+ * @param {ReturnType<import('./claude.mjs').createClaudeClient>} claude - Claude client (Haiku)
+ * @returns {Promise<object>} Blueprint with resolved names
+ */
+export async function resolveNames(blueprint, unresolved, claude) {
+  if (unresolved.length === 0) return blueprint;
+
+  const prompt = `Given a UI component called "${blueprint.name}", rename these generic nodes to semantic names.
+Each node has: current name, type, Figma layer name, Figma type, and child count.
+
+Nodes to rename:
+${JSON.stringify(unresolved, null, 2)}
+
+Return a JSON object mapping current name → new semantic camelCase name.
+Example: {"container0": "headerRow", "icon1": "chevronIcon"}
+
+Only return the JSON object, no explanation.`;
+
+  const mapping = await claude.promptJSON(prompt);
+
+  // Apply the mapping recursively
+  function applyNames(node) {
+    if (node._unresolved && mapping[node.name]) {
+      node.name = mapping[node.name];
+      delete node._unresolved;
+    }
+    if (node.children) {
+      for (const child of node.children) {
+        applyNames(child);
+      }
+    }
+  }
+
+  applyNames(blueprint);
+
+  // Also clean any remaining _unresolved flags
+  function cleanFlags(node) {
+    delete node._unresolved;
+    if (node.children) {
+      for (const child of node.children) {
+        cleanFlags(child);
+      }
+    }
+  }
+  cleanFlags(blueprint);
 
   return blueprint;
 }

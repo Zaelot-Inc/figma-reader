@@ -39,7 +39,12 @@ function parseArgs(argv) {
     else if (argv[i] === "--url") args.url = argv[++i];
     else if (argv[i] === "--figma-token") args.figmaToken = argv[++i];
     else if (argv[i] === "--anthropic-key") args.anthropicKey = argv[++i];
-    else if (argv[i] === "--ai") args.ai = true;
+    else if (argv[i] === "--ai") {
+      // --ai or --ai full
+      const next = argv[i + 1];
+      if (next === "full") { args.ai = "full"; i++; }
+      else { args.ai = true; }
+    }
     else if (argv[i] === "--components") args.components = true;
     else if (argv[i] === "--styles") args.styles = true;
     else if (argv[i] === "--help" || argv[i] === "-h") args.help = true;
@@ -126,8 +131,9 @@ async function main() {
   const FIGMA_TOKEN = args.figmaToken || process.env.FIGMA_TOKEN;
   const ANTHROPIC_API_KEY = args.anthropicKey || process.env.ANTHROPIC_API_KEY;
 
-  // Claude is needed for: audit always, extract only with --ai
-  const needsClaude = args.command === "audit" || (args.command === "extract" && args.ai);
+  // Claude is required for: audit always, extract --ai full
+  // Claude is optional for: extract (used for name resolution with Haiku if available)
+  const needsClaude = args.command === "audit" || (args.command === "extract" && args.ai === "full");
 
   if (!FIGMA_TOKEN) {
     log("Error: FIGMA_TOKEN is required.");
@@ -200,7 +206,6 @@ async function main() {
     process.exit(1);
   }
 
-  const claude = needsClaude ? createClaudeClient(ANTHROPIC_API_KEY, { model }) : null;
   const outDir = args.outDir || config.outDir || ".figma-reader";
 
   // ── extract ──
@@ -212,6 +217,17 @@ async function main() {
       process.exit(1);
     }
     nodeId = nodeId.replace(/-/g, ":");
+
+    // Pick the right Claude client:
+    // --ai full → use configured model (Sonnet) for full cleaning
+    // --ai or ANTHROPIC_API_KEY available → use Haiku for name resolution only
+    // no key → pure deterministic
+    let claude = null;
+    if (args.ai === "full" && ANTHROPIC_API_KEY) {
+      claude = createClaudeClient(ANTHROPIC_API_KEY, { model });
+    } else if (ANTHROPIC_API_KEY) {
+      claude = createClaudeClient(ANTHROPIC_API_KEY, { model: "claude-haiku-4-5-20251001" });
+    }
 
     const result = await extract({
       figma,
@@ -238,6 +254,7 @@ async function main() {
     }
     nodeId = nodeId.replace(/-/g, ":");
 
+    const claude = createClaudeClient(ANTHROPIC_API_KEY, { model });
     const reportPath = await audit({
       figma,
       claude,

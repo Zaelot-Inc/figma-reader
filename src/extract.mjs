@@ -17,7 +17,7 @@
 import { writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { slugify } from "./parsers.mjs";
-import { transform } from "./transform.mjs";
+import { transform, resolveNames } from "./transform.mjs";
 
 const CLEAN_PROMPT = (componentName, rawJson) => `You are a design-to-code translator. Extract a clean, structured blueprint from this raw Figma component JSON.
 
@@ -135,13 +135,24 @@ export async function extract({ figma, claude, fileKey, nodeId, outDir, name, de
   // Step 2: Transform
   let blueprint;
 
-  if (ai && claude) {
-    log("Cleaning with Claude (--ai mode)...");
+  if (ai === "full" && claude) {
+    // Full AI mode: Claude does everything
+    log("Cleaning with Claude (--ai full mode)...");
     const rawJson = JSON.stringify(nodeTree, null, 2).slice(0, 80000);
     blueprint = await claude.promptJSON(CLEAN_PROMPT(componentName, rawJson));
   } else {
+    // Deterministic transform
     log("Transforming (deterministic)...");
-    blueprint = transform(nodeTree);
+    const result = transform(nodeTree);
+    blueprint = result.blueprint;
+
+    // If there are unresolved names and we have a Claude client, use Haiku to fix them
+    if (result.unresolved.length > 0 && claude) {
+      log(`  ${result.unresolved.length} generic names detected, resolving with Haiku...`);
+      blueprint = await resolveNames(blueprint, result.unresolved, claude);
+    } else if (result.unresolved.length > 0) {
+      log(`  ${result.unresolved.length} generic names (pass --anthropic-key to auto-resolve)`);
+    }
   }
 
   log(`  Blueprint: ${blueprint.name} (${blueprint.children?.length || 0} children)`);

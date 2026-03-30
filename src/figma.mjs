@@ -17,6 +17,11 @@ export function createFigmaClient(token) {
   }
 
   return {
+    /** Fetch file metadata (name, pages at depth 1) */
+    async getFile(fileKey, depth = 1) {
+      return request(`/files/${fileKey}?depth=${depth}`);
+    },
+
     /** Fetch specific nodes from a file */
     async getNodes(fileKey, nodeId, depth = 10) {
       const data = await request(`/files/${fileKey}/nodes?ids=${nodeId}&depth=${depth}`);

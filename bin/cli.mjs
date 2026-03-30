@@ -3,12 +3,14 @@
  * figma-reader CLI
  *
  * Commands:
+ *   init     [--url URL] [--file-key KEY]
+ *   browse   [--node-id ID] [--components] [--styles]
  *   extract  --node-id <id> [--file-key KEY] [--name NAME] [--depth N] [--out DIR]
  *   audit    [--node-id <id>] [--file-key KEY] [--out DIR]
  *
  * Environment:
  *   FIGMA_TOKEN        — Figma Personal Access Token (required)
- *   ANTHROPIC_API_KEY  — Anthropic API key (required)
+ *   ANTHROPIC_API_KEY  — Anthropic API key (required for extract/audit)
  *
  * Config:
  *   Place a .figma-reader.json in your project root for defaults.
@@ -19,6 +21,8 @@ import { createClaudeClient } from "../src/claude.mjs";
 import { loadConfig } from "../src/config.mjs";
 import { extract } from "../src/extract.mjs";
 import { audit } from "../src/audit.mjs";
+import { browse } from "../src/browse.mjs";
+import { init } from "../src/init.mjs";
 
 // ── Parse CLI args ────────────────────────────────────────────
 function parseArgs(argv) {
@@ -32,7 +36,12 @@ function parseArgs(argv) {
     else if (argv[i] === "--name") args.name = argv[++i];
     else if (argv[i] === "--source") args.sourceRoot = argv[++i];
     else if (argv[i] === "--model") args.claudeModel = argv[++i];
+    else if (argv[i] === "--url") args.url = argv[++i];
+    else if (argv[i] === "--components") args.components = true;
+    else if (argv[i] === "--styles") args.styles = true;
     else if (argv[i] === "--help" || argv[i] === "-h") args.help = true;
+    // Positional: treat bare args as URL for init, or node-id for browse
+    else if (!argv[i].startsWith("-") && !args._positional) args._positional = argv[i];
   }
   return { command, ...args };
 }
@@ -46,44 +55,52 @@ function printUsage() {
 figma-reader — Extract and audit Figma design systems
 
 Usage:
+  figma-reader init    [--url <figma-url>] [--file-key KEY]
+  figma-reader browse  [--node-id ID] [--components] [--styles]
   figma-reader extract --node-id <id> [options]
   figma-reader audit   [options]
 
 Commands:
+  init      Create .figma-reader.json config (scans project for design system files)
+  browse    Navigate a Figma file: pages, frames, components, styles
   extract   Fetch a Figma component, clean it into a blueprint, export screenshot
   audit     Compare a Figma DLS against your codebase's design system
 
 Options:
   --file-key KEY    Figma file key (or set in .figma-reader.json)
   --node-id ID      Figma node ID (supports both 1-234 and 1:234 formats)
+  --url URL         Figma URL (init/browse — extracts file key and node ID)
   --name NAME       Override component name (extract only)
-  --depth N         Node tree traversal depth (default: 10 for extract, 6 for audit)
+  --depth N         Node tree traversal depth (default: 10 extract, 6 audit, 2 browse)
   --out DIR         Output directory (default: .figma-reader/)
   --source DIR      Source root for codebase files (audit only)
-  --model MODEL     Claude model to use (default: claude-sonnet-4-6)
+  --model MODEL     Claude model (default: claude-sonnet-4-6)
+  --components      List published components (browse only)
+  --styles          List published styles (browse only)
   --help, -h        Show this help
 
 Environment:
   FIGMA_TOKEN        Figma Personal Access Token (required)
-  ANTHROPIC_API_KEY  Anthropic API key (required)
+  ANTHROPIC_API_KEY  Anthropic API key (required for extract and audit)
 
-Config:
-  Place a .figma-reader.json in your project root:
+Examples:
+  # Initialize config from a Figma URL
+  figma-reader init --url "https://www.figma.com/design/ABC123/My-DLS?node-id=1-2"
 
-  {
-    "fileKey": "your-figma-file-key",
-    "nodeId": "1:234",
-    "sourceRoot": "./src",
-    "outDir": ".figma-reader",
-    "files": {
-      "Colors": "theme/colors.ts",
-      "Typography": "theme/fonts.ts"
-    },
-    "directories": {
-      "Components": "components/",
-      "Screen Components": "screens/components/"
-    }
-  }
+  # Browse file pages
+  figma-reader browse
+
+  # Browse a specific page or frame
+  figma-reader browse --node-id 1:2
+
+  # List all published components
+  figma-reader browse --components
+
+  # Extract a component
+  figma-reader extract --node-id 1:3595
+
+  # Audit DLS against codebase
+  figma-reader audit
 `);
 }
 
@@ -96,22 +113,73 @@ async function main() {
     process.exit(args.help || args.command === "--help" || args.command === "-h" ? 0 : 1);
   }
 
-  // Validate env
   const FIGMA_TOKEN = process.env.FIGMA_TOKEN;
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+
+  // init and browse only need FIGMA_TOKEN
+  const needsClaude = args.command === "extract" || args.command === "audit";
 
   if (!FIGMA_TOKEN) {
     log("Error: FIGMA_TOKEN is required.");
     log("  Create one at: Figma > Settings > Personal Access Tokens");
     process.exit(1);
   }
-  if (!ANTHROPIC_API_KEY) {
-    log("Error: ANTHROPIC_API_KEY is required.");
+  if (needsClaude && !ANTHROPIC_API_KEY) {
+    log("Error: ANTHROPIC_API_KEY is required for extract/audit.");
     process.exit(1);
   }
 
-  // Load config
   const config = loadConfig();
+  const figma = createFigmaClient(FIGMA_TOKEN);
+
+  // ── init ──
+  if (args.command === "init") {
+    const url = args.url || args._positional;
+    await init({
+      figma,
+      url,
+      fileKey: args.fileKey,
+      nodeId: args.nodeId,
+      cwd: process.cwd(),
+      log,
+    });
+    return;
+  }
+
+  // ── browse ──
+  if (args.command === "browse") {
+    const { parseFigmaUrl } = await import("../src/browse.mjs");
+
+    let fileKey = args.fileKey || config.fileKey;
+    let nodeId = args.nodeId;
+
+    // Support passing a URL as positional arg
+    if (args._positional && args._positional.includes("figma.com")) {
+      const parsed = parseFigmaUrl(args._positional);
+      fileKey = fileKey || parsed.fileKey;
+      nodeId = nodeId || parsed.nodeId;
+    }
+
+    if (!fileKey) {
+      log("Error: --file-key is required (or set fileKey in .figma-reader.json, or pass a Figma URL)");
+      process.exit(1);
+    }
+
+    if (nodeId) nodeId = nodeId.replace(/-/g, ":");
+
+    await browse({
+      figma,
+      fileKey,
+      nodeId,
+      depth: args.depth || 2,
+      components: args.components || false,
+      styles: args.styles || false,
+      log,
+    });
+    return;
+  }
+
+  // Commands below need file key and claude
   const fileKey = args.fileKey || config.fileKey;
   const model = args.claudeModel || config.claudeModel;
 
@@ -120,12 +188,10 @@ async function main() {
     process.exit(1);
   }
 
-  // Create clients
-  const figma = createFigmaClient(FIGMA_TOKEN);
   const claude = createClaudeClient(ANTHROPIC_API_KEY, { model });
   const outDir = args.outDir || config.outDir || ".figma-reader";
 
-  // Route command
+  // ── extract ──
   if (args.command === "extract") {
     let nodeId = args.nodeId;
     if (!nodeId) {
@@ -133,7 +199,6 @@ async function main() {
       log("  Copy from Figma URL: node-id=X-Y → use X-Y or X:Y");
       process.exit(1);
     }
-    // Convert URL format (1-9407) to API format (1:9407)
     nodeId = nodeId.replace(/-/g, ":");
 
     const result = await extract({
@@ -147,9 +212,12 @@ async function main() {
       log,
     });
 
-    // Output summary to stdout for programmatic use
     process.stdout.write(JSON.stringify(result));
-  } else if (args.command === "audit") {
+    return;
+  }
+
+  // ── audit ──
+  if (args.command === "audit") {
     let nodeId = args.nodeId || config.nodeId;
     if (!nodeId) {
       log("Error: --node-id is required for audit (or set nodeId in .figma-reader.json)");
@@ -173,11 +241,12 @@ async function main() {
     });
 
     process.stdout.write(reportPath);
-  } else {
-    log(`Unknown command: ${args.command}`);
-    log('  Use "extract" or "audit". Run with --help for usage.');
-    process.exit(1);
+    return;
   }
+
+  log(`Unknown command: ${args.command}`);
+  log('  Available: init, browse, extract, audit. Run with --help for usage.');
+  process.exit(1);
 }
 
 main().catch((err) => {

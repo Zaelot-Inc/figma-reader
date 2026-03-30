@@ -37,6 +37,8 @@ function parseArgs(argv) {
     else if (argv[i] === "--source") args.sourceRoot = argv[++i];
     else if (argv[i] === "--model") args.claudeModel = argv[++i];
     else if (argv[i] === "--url") args.url = argv[++i];
+    else if (argv[i] === "--figma-token") args.figmaToken = argv[++i];
+    else if (argv[i] === "--anthropic-key") args.anthropicKey = argv[++i];
     else if (argv[i] === "--components") args.components = true;
     else if (argv[i] === "--styles") args.styles = true;
     else if (argv[i] === "--help" || argv[i] === "-h") args.help = true;
@@ -75,13 +77,19 @@ Options:
   --out DIR         Output directory (default: .figma-reader/)
   --source DIR      Source root for codebase files (audit only)
   --model MODEL     Claude model (default: claude-sonnet-4-6)
+  --figma-token T   Figma Personal Access Token (or set FIGMA_TOKEN env var)
+  --anthropic-key K Anthropic API key (or set ANTHROPIC_API_KEY env var)
   --components      List published components (browse only)
   --styles          List published styles (browse only)
   --help, -h        Show this help
 
-Environment:
-  FIGMA_TOKEN        Figma Personal Access Token (required)
-  ANTHROPIC_API_KEY  Anthropic API key (required for extract and audit)
+Authentication (pick one):
+  # Via flags
+  figma-reader browse --figma-token figd_xxx
+  figma-reader extract --node-id 1:3595 --figma-token figd_xxx --anthropic-key sk-ant-xxx
+
+  # Via env vars
+  export FIGMA_TOKEN=figd_xxx ANTHROPIC_API_KEY=sk-ant-xxx
 
 Examples:
   # Initialize config from a Figma URL
@@ -113,19 +121,22 @@ async function main() {
     process.exit(args.help || args.command === "--help" || args.command === "-h" ? 0 : 1);
   }
 
-  const FIGMA_TOKEN = process.env.FIGMA_TOKEN;
-  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  // CLI args take priority over env vars
+  const FIGMA_TOKEN = args.figmaToken || process.env.FIGMA_TOKEN;
+  const ANTHROPIC_API_KEY = args.anthropicKey || process.env.ANTHROPIC_API_KEY;
 
   // init and browse only need FIGMA_TOKEN
   const needsClaude = args.command === "extract" || args.command === "audit";
 
   if (!FIGMA_TOKEN) {
     log("Error: FIGMA_TOKEN is required.");
+    log("  Pass via --figma-token <token> or set FIGMA_TOKEN env var.");
     log("  Create one at: Figma > Settings > Personal Access Tokens");
     process.exit(1);
   }
   if (needsClaude && !ANTHROPIC_API_KEY) {
     log("Error: ANTHROPIC_API_KEY is required for extract/audit.");
+    log("  Pass via --anthropic-key <key> or set ANTHROPIC_API_KEY env var.");
     process.exit(1);
   }
 

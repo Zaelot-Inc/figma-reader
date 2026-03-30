@@ -363,6 +363,8 @@ The `blueprint.json` output is framework-agnostic:
 | `--out DIR` | Output directory | `.figma-reader/` |
 | `--source DIR` | Codebase source root (audit) | `.` |
 | `--model MODEL` | Claude model | `claude-sonnet-4-6` |
+| `--figma-token T` | Figma PAT (alternative to `FIGMA_TOKEN` env var) | env var |
+| `--anthropic-key K` | Anthropic API key (alternative to `ANTHROPIC_API_KEY` env var) | env var |
 | `--components` | List published components (browse) | — |
 | `--styles` | List published styles (browse) | — |
 

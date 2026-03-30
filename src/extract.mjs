@@ -1,8 +1,11 @@
 /**
  * figma-reader extract
  *
- * Fetches a Figma component, cleans the raw JSON into a structured
- * blueprint using Claude, and exports a screenshot.
+ * Fetches a Figma component and produces a clean blueprint + screenshot.
+ *
+ * Two modes:
+ *   - Default: deterministic transform (free, fast, no AI)
+ *   - --ai: Claude-powered cleaning (better semantic names, costs ~$0.02)
  *
  * Output:
  *   <outDir>/<component-slug>/
@@ -14,6 +17,7 @@
 import { writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { slugify } from "./parsers.mjs";
+import { transform } from "./transform.mjs";
 
 const CLEAN_PROMPT = (componentName, rawJson) => `You are a design-to-code translator. Extract a clean, structured blueprint from this raw Figma component JSON.
 
@@ -96,17 +100,18 @@ Return ONLY the JSON object. No explanation, no markdown.`;
  * Extract a Figma component into a clean blueprint + screenshot.
  *
  * @param {object} options
- * @param {import('./figma.mjs').createFigmaClient} options.figma - Figma client
- * @param {import('./claude.mjs').createClaudeClient} options.claude - Claude client
+ * @param {ReturnType<import('./figma.mjs').createFigmaClient>} options.figma - Figma client
+ * @param {ReturnType<import('./claude.mjs').createClaudeClient>} [options.claude] - Claude client (only needed with ai=true)
  * @param {string} options.fileKey - Figma file key
  * @param {string} options.nodeId - Node ID (colon-separated)
  * @param {string} options.outDir - Output directory
  * @param {string} [options.name] - Override component name
  * @param {number} [options.depth=10] - Node tree depth
+ * @param {boolean} [options.ai=false] - Use Claude for cleaning (better names, costs ~$0.02)
  * @param {function} [options.log] - Logging function
  * @returns {Promise<object>} Summary of extracted files
  */
-export async function extract({ figma, claude, fileKey, nodeId, outDir, name, depth = 10, log = () => {} }) {
+export async function extract({ figma, claude, fileKey, nodeId, outDir, name, depth = 10, ai = false, log = () => {} }) {
   log(`Extracting component ${nodeId} from ${fileKey}`);
 
   // Step 1: Fetch node data + screenshot in parallel
@@ -127,11 +132,17 @@ export async function extract({ figma, claude, fileKey, nodeId, outDir, name, de
   if (nodeTree.children) log(`  Children: ${nodeTree.children.length}`);
   if (imageBuffer) log(`  Screenshot: ${Math.round(imageBuffer.length / 1024)}KB`);
 
-  // Step 2: Clean with Claude
-  log("Cleaning raw data into structured blueprint...");
+  // Step 2: Transform
+  let blueprint;
 
-  const rawJson = JSON.stringify(nodeTree, null, 2).slice(0, 80000);
-  const blueprint = await claude.promptJSON(CLEAN_PROMPT(componentName, rawJson));
+  if (ai && claude) {
+    log("Cleaning with Claude (--ai mode)...");
+    const rawJson = JSON.stringify(nodeTree, null, 2).slice(0, 80000);
+    blueprint = await claude.promptJSON(CLEAN_PROMPT(componentName, rawJson));
+  } else {
+    log("Transforming (deterministic)...");
+    blueprint = transform(nodeTree);
+  }
 
   log(`  Blueprint: ${blueprint.name} (${blueprint.children?.length || 0} children)`);
   if (blueprint.variants?.length) {

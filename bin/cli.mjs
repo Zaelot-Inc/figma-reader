@@ -39,6 +39,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--url") args.url = argv[++i];
     else if (argv[i] === "--figma-token") args.figmaToken = argv[++i];
     else if (argv[i] === "--anthropic-key") args.anthropicKey = argv[++i];
+    else if (argv[i] === "--ai") args.ai = true;
     else if (argv[i] === "--components") args.components = true;
     else if (argv[i] === "--styles") args.styles = true;
     else if (argv[i] === "--help" || argv[i] === "-h") args.help = true;
@@ -125,8 +126,8 @@ async function main() {
   const FIGMA_TOKEN = args.figmaToken || process.env.FIGMA_TOKEN;
   const ANTHROPIC_API_KEY = args.anthropicKey || process.env.ANTHROPIC_API_KEY;
 
-  // init and browse only need FIGMA_TOKEN
-  const needsClaude = args.command === "extract" || args.command === "audit";
+  // Claude is needed for: audit always, extract only with --ai
+  const needsClaude = args.command === "audit" || (args.command === "extract" && args.ai);
 
   if (!FIGMA_TOKEN) {
     log("Error: FIGMA_TOKEN is required.");
@@ -135,7 +136,7 @@ async function main() {
     process.exit(1);
   }
   if (needsClaude && !ANTHROPIC_API_KEY) {
-    log("Error: ANTHROPIC_API_KEY is required for extract/audit.");
+    log(`Error: ANTHROPIC_API_KEY is required for ${args.command}${args.ai ? " --ai" : ""}.`);
     log("  Pass via --anthropic-key <key> or set ANTHROPIC_API_KEY env var.");
     process.exit(1);
   }
@@ -190,7 +191,7 @@ async function main() {
     return;
   }
 
-  // Commands below need file key and claude
+  // Commands below need file key
   const fileKey = args.fileKey || config.fileKey;
   const model = args.claudeModel || config.claudeModel;
 
@@ -199,7 +200,7 @@ async function main() {
     process.exit(1);
   }
 
-  const claude = createClaudeClient(ANTHROPIC_API_KEY, { model });
+  const claude = needsClaude ? createClaudeClient(ANTHROPIC_API_KEY, { model }) : null;
   const outDir = args.outDir || config.outDir || ".figma-reader";
 
   // ── extract ──
@@ -220,6 +221,7 @@ async function main() {
       outDir,
       name: args.name,
       depth: args.depth || config.depth?.extract || 10,
+      ai: args.ai || false,
       log,
     });
 

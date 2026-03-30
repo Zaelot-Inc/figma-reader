@@ -6,12 +6,16 @@ Zero npm dependencies. Uses Node 18+ native `fetch`.
 
 ## What it does
 
-- **`extract`** — Fetches a Figma component, cleans the raw JSON into a structured blueprint using Claude, and exports a rendered screenshot. Outputs a clean spec ready for any AI coding tool to consume.
-- **`audit`** — Compares a Figma DLS (Design Language System) against your codebase's design tokens, typography, and components. Generates a detailed markdown report with gaps, mismatches, and recommendations.
+| Command | Needs Claude API? | Description |
+|---|---|---|
+| `init` | No | Create `.figma-reader.json` from a Figma URL, auto-detect project files |
+| `browse` | No | Navigate a Figma file: pages, frames, components, styles |
+| `extract` | Yes | Fetch a component → clean blueprint + screenshot |
+| `audit` | Yes | Compare Figma DLS against your codebase → markdown report |
 
 ## Why not a Figma MCP?
 
-A Figma MCP injects raw Figma JSON directly into your AI session context. A single component can be 50k–130k tokens of noise. This tool:
+A Figma MCP injects raw Figma JSON directly into your AI session context. A single component can be 50k-130k tokens of noise. This tool:
 
 1. Fetches from Figma API (free — uses Personal Access Token)
 2. Cleans the data with a cheap Claude Sonnet call (~$0.02)
@@ -23,37 +27,232 @@ A Figma MCP injects raw Figma JSON directly into your AI session context. A sing
 ## Setup
 
 ```bash
-# Clone
 git clone https://github.com/Zaelot-Inc/figma-reader.git
 cd figma-reader
 
-# Set env vars
 export FIGMA_TOKEN=your-figma-personal-access-token
 export ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
-Get a Figma token: **Figma → Settings → Personal Access Tokens → Generate**
+Get a Figma token: **Figma > Settings > Personal Access Tokens > Generate**
 
-## Usage
-
-### Extract a component
+## Quick start
 
 ```bash
-node bin/cli.mjs extract --file-key <FIGMA_FILE_KEY> --node-id <NODE_ID>
+# 1. Init config from a Figma URL (auto-detects your project's design system files)
+node bin/cli.mjs init --url "https://www.figma.com/design/ABC123/My-DLS?node-id=1-2"
+
+# 2. Browse the Figma file
+node bin/cli.mjs browse
+node bin/cli.mjs browse --node-id 1:9133
+node bin/cli.mjs browse --components
+
+# 3. Extract a component into a blueprint + screenshot
+node bin/cli.mjs extract --node-id 1:3595
+
+# 4. Audit the full DLS against your codebase
+node bin/cli.mjs audit
 ```
 
-The node ID comes from the Figma URL: `figma.com/design/FILE_KEY/...?node-id=1-234`
-Both `1-234` and `1:234` formats work.
+## Using with AI coding tools
+
+The whole point of figma-reader is to feed clean Figma data into AI tools without burning context on raw JSON. Here's how to use it with each tool.
+
+### Claude Code
+
+Run `extract` first, then point Claude Code at the output:
+
+```bash
+# Extract the component
+node path/to/figma-reader/bin/cli.mjs extract --node-id 1:3595
+
+# Then in Claude Code, ask it to read the files
+# "Read .figma-reader/buttons/blueprint.json and .figma-reader/buttons/screenshot.png
+#  and build this component as a React Native component in src/components/Button/"
+```
+
+Or use it from a custom slash command. Create `.claude/commands/figma-build.md`:
+
+```markdown
+---
+name: figma-build
+description: Build a component from a Figma blueprint
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+---
+<steps>
+1. Ask the user for the Figma node ID (from the URL).
+2. Run: `bash -c 'source .env && node path/to/figma-reader/bin/cli.mjs extract --node-id "<node-id>"'`
+3. Read the blueprint: `.figma-reader/<component>/blueprint.json`
+4. View the screenshot: `.figma-reader/<component>/screenshot.png`
+5. Read the existing design system files (colors, typography) to map tokens.
+6. Generate the component following the project's conventions.
+</steps>
+```
+
+For audits, ask Claude Code to read the report:
+
+```bash
+node path/to/figma-reader/bin/cli.mjs audit
+# "Read .figma-reader/audit-2025-01-15.md and fix the top 3 color mismatches"
+```
+
+### Cursor
+
+Extract the component, then reference the outputs in Cursor's chat or composer:
+
+```bash
+node path/to/figma-reader/bin/cli.mjs extract --node-id 1:3595
+```
+
+In Cursor chat:
+```
+@.figma-reader/buttons/blueprint.json @.figma-reader/buttons/screenshot.png
+Build this component as a React component in src/components/Button.tsx
+using our existing design tokens from src/theme/colors.ts
+```
+
+For audits:
+```
+@.figma-reader/audit-2025-01-15.md
+Fix the color mismatches listed in section 1.4
+```
+
+You can also add a Cursor rule in `.cursor/rules`:
+```
+When building components from Figma blueprints (.figma-reader/*/blueprint.json):
+- Always map colors to existing design tokens, never hardcode hex values
+- Use the screenshot as visual reference for layout accuracy
+- Implement all variants listed in the blueprint as component props
+```
+
+### Codex (OpenAI)
+
+Codex works with file context. Extract first, then reference:
+
+```bash
+node path/to/figma-reader/bin/cli.mjs extract --node-id 1:3595
+```
+
+Then in Codex:
+```
+Read .figma-reader/buttons/blueprint.json and .figma-reader/buttons/screenshot.png.
+Build a React component matching this Figma blueprint.
+Use the design tokens from src/theme/colors.ts.
+Implement all 12 variants as props (enabled, type, size).
+```
+
+### Windsurf
+
+Same pattern — extract, then reference in Cascade:
+
+```bash
+node path/to/figma-reader/bin/cli.mjs extract --node-id 1:3595
+```
+
+```
+@.figma-reader/buttons/blueprint.json @.figma-reader/buttons/screenshot.png
+Implement this button component with all variants.
+Follow our existing component patterns in src/components/.
+```
+
+### Any AI tool (generic)
+
+The workflow is always:
+
+```
+1. figma-reader extract --node-id <id>     →  blueprint.json + screenshot.png
+2. Give both files to your AI tool
+3. AI reads the structured spec + sees the visual reference
+4. AI generates code matching the design
+```
+
+The `blueprint.json` format is framework-agnostic. It uses flexbox layout, hex colors, and pixel values that map directly to CSS, React Native StyleSheet, SwiftUI, Jetpack Compose, or any UI framework.
+
+### CI/CD integration
+
+Run audits in CI to catch design drift:
+
+```yaml
+# .github/workflows/design-audit.yml
+name: Design System Audit
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 9am
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Clone figma-reader
+        run: git clone https://github.com/Zaelot-Inc/figma-reader.git /tmp/figma-reader
+      - name: Run audit
+        env:
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node /tmp/figma-reader/bin/cli.mjs audit
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: design-audit
+          path: .figma-reader/audit-*.md
+```
+
+## Commands
+
+### `init`
+
+Create a `.figma-reader.json` config file:
+
+```bash
+figma-reader init --url "https://www.figma.com/design/FILE_KEY/Name?node-id=1-2"
+figma-reader init --file-key FILE_KEY --node-id 1:2
+```
+
+Auto-detects design system files in your project (colors, typography, components).
+
+### `browse`
+
+Navigate a Figma file from the terminal:
+
+```bash
+figma-reader browse                          # List pages
+figma-reader browse --node-id 1:2            # Drill into a page/frame
+figma-reader browse --components             # List all published component sets
+figma-reader browse --styles                 # List all published styles
+```
+
+Shows node IDs you can copy directly into `extract` or `audit`.
+
+### `extract`
+
+Fetch a Figma component and produce a clean blueprint:
+
+```bash
+figma-reader extract --node-id 1:3595
+figma-reader extract --node-id 1:3595 --name "MyButton"
+```
 
 Output in `.figma-reader/<component>/`:
 - `blueprint.json` — clean component spec (layout, styles, children, variants)
 - `screenshot.png` — rendered image of the component
 - `raw.json` — original Figma data (for debugging)
 
-### Audit a design system
+### `audit`
+
+Compare a Figma DLS against your codebase:
 
 ```bash
-node bin/cli.mjs audit --file-key <FIGMA_FILE_KEY> --node-id <DLS_ROOT_NODE_ID>
+figma-reader audit
+figma-reader audit --node-id 1:9407 --source ./src
 ```
 
 Output: `.figma-reader/audit-YYYY-MM-DD.md` with:
@@ -63,16 +262,17 @@ Output: `.figma-reader/audit-YYYY-MM-DD.md` with:
 - Spacing analysis
 - Overall alignment score + prioritized recommendations
 
-### With a config file
+## Config file
 
-Create `.figma-reader.json` in your project root:
+Place `.figma-reader.json` in your project root (or run `init` to generate it):
 
 ```json
 {
-  "fileKey": "1BOAwYqjtfdtPSWUHw42fe",
+  "fileKey": "your-figma-file-key",
   "nodeId": "1:9407",
   "sourceRoot": "./src",
   "outDir": ".figma-reader",
+  "claudeModel": "claude-sonnet-4-6",
   "files": {
     "Colors": "constants/theme.js",
     "Typography": "constants/styles.js"
@@ -82,13 +282,6 @@ Create `.figma-reader.json` in your project root:
     "Screen Components": "screens/components/"
   }
 }
-```
-
-Then just:
-
-```bash
-node bin/cli.mjs audit
-node bin/cli.mjs extract --node-id 1:3595
 ```
 
 ## Blueprint format
@@ -127,25 +320,26 @@ The `blueprint.json` output is framework-agnostic:
 }
 ```
 
-Use it with any AI tool or code generator — React, React Native, Vue, SwiftUI, etc.
-
 ## Options
 
 | Flag | Description | Default |
 |---|---|---|
 | `--file-key KEY` | Figma file key | from config |
 | `--node-id ID` | Node ID (supports `1-234` and `1:234`) | from config |
+| `--url URL` | Figma URL (init/browse — extracts file key and node ID) | — |
 | `--name NAME` | Override component name (extract) | from Figma |
-| `--depth N` | Node tree depth | 10 (extract), 6 (audit) |
+| `--depth N` | Node tree depth | 10 (extract), 6 (audit), 2 (browse) |
 | `--out DIR` | Output directory | `.figma-reader/` |
 | `--source DIR` | Codebase source root (audit) | `.` |
 | `--model MODEL` | Claude model | `claude-sonnet-4-6` |
+| `--components` | List published components (browse) | — |
+| `--styles` | List published styles (browse) | — |
 
 ## Requirements
 
 - Node.js >= 18 (native fetch)
 - `FIGMA_TOKEN` — [Figma Personal Access Token](https://www.figma.com/developers/api#access-tokens)
-- `ANTHROPIC_API_KEY` — [Anthropic API key](https://console.anthropic.com/)
+- `ANTHROPIC_API_KEY` — [Anthropic API key](https://console.anthropic.com/) (only for extract/audit)
 
 ## License
 

@@ -1,0 +1,30 @@
+{
+  "name": "figma-reader",
+  "version": "0.1.0",
+  "description": "Extract and audit Figma design systems using the Figma REST API + Claude API. Zero-dependency CLI.",
+  "type": "module",
+  "bin": {
+    "figma-reader": "./bin/cli.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
+  "keywords": [
+    "figma",
+    "design-system",
+    "audit",
+    "design-tokens",
+    "claude",
+    "ai"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zaelot-Inc/figma-reader.git"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -382,6 +382,26 @@ jobs:
 | `--components` | List published components (browse) | — |
 | `--styles` | List published styles (browse) | — |
 
+## Data privacy and third-party services
+
+figma-reader accesses your Figma files through the official [Figma REST API](https://www.figma.com/developers/api) using a Personal Access Token that you provide. The tool only requests **read-only** scopes (`file_content:read`, `file_metadata:read`) and never modifies your Figma files.
+
+When you use `extract` or `audit`, design data from your Figma files may be sent to the [Anthropic API](https://www.anthropic.com/api) (Claude) for processing. This happens in two cases:
+
+- **`extract`** (default): only unresolved node names are sent to Claude Haiku. If no names need resolution, no data is sent.
+- **`extract --ai full`** and **`audit`**: the component structure or design token data is sent to Claude Sonnet for analysis.
+
+Anthropic does not use API inputs to train models. See [Anthropic's privacy policy](https://www.anthropic.com/privacy) for details.
+
+**Important:**
+
+- You are responsible for ensuring you have permission to access and process the Figma files you use with this tool.
+- Do not use this tool on Figma files that contain confidential or sensitive information unless you are authorized to send that data to third-party APIs.
+- figma-reader does not store, cache, or log any Figma data beyond writing the output files to your local disk.
+- Output files (`blueprint.json`, `screenshot.png`, `raw.json`) are written locally and never uploaded anywhere.
+
+Review the [Figma Developer Terms](https://www.figma.com/legal/developer-terms) and [Figma Terms of Service](https://www.figma.com/legal/tos/) for applicable restrictions on API usage.
+
 ## Contributing
 
 Contributions are welcome. Please open an issue first to discuss what you'd like to change.

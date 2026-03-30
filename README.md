@@ -24,34 +24,65 @@ A Figma MCP injects raw Figma JSON directly into your AI session context. A sing
 
 **Result: ~96% less data in your context window.**
 
-## Setup
+## Install
 
 ```bash
-git clone https://github.com/Zaelot-Inc/figma-reader.git
-cd figma-reader
+# Install globally from GitHub
+npm install -g github:Zaelot-Inc/figma-reader
 
+# Or with pnpm
+pnpm add -g github:Zaelot-Inc/figma-reader
+```
+
+Then use it anywhere:
+
+```bash
+figma-reader --help
+figma-reader init --url "https://www.figma.com/design/..."
+figma-reader browse --components
+figma-reader extract --node-id 1:3595
+```
+
+### Environment variables
+
+```bash
 export FIGMA_TOKEN=your-figma-personal-access-token
 export ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
 Get a Figma token: **Figma > Settings > Personal Access Tokens > Generate**
 
+The token only needs **read-only** access. When creating it, select these scopes:
+
+| Scope | Permission | Why |
+|---|---|---|
+| **File content** | Read only | Read node trees, pages, frames |
+| **File metadata** | Read only | File name, last modified date |
+
+No write permissions are needed. figma-reader never modifies your Figma files.
+
+### Alternative: run without installing
+
+```bash
+npx github:Zaelot-Inc/figma-reader --help
+```
+
 ## Quick start
 
 ```bash
 # 1. Init config from a Figma URL (auto-detects your project's design system files)
-node bin/cli.mjs init --url "https://www.figma.com/design/ABC123/My-DLS?node-id=1-2"
+figma-reader init --url "https://www.figma.com/design/ABC123/My-DLS?node-id=1-2"
 
 # 2. Browse the Figma file
-node bin/cli.mjs browse
-node bin/cli.mjs browse --node-id 1:9133
-node bin/cli.mjs browse --components
+figma-reader browse
+figma-reader browse --node-id 1:9133
+figma-reader browse --components
 
 # 3. Extract a component into a blueprint + screenshot
-node bin/cli.mjs extract --node-id 1:3595
+figma-reader extract --node-id 1:3595
 
 # 4. Audit the full DLS against your codebase
-node bin/cli.mjs audit
+figma-reader audit
 ```
 
 ## Using with AI coding tools
@@ -64,7 +95,7 @@ Run `extract` first, then point Claude Code at the output:
 
 ```bash
 # Extract the component
-node path/to/figma-reader/bin/cli.mjs extract --node-id 1:3595
+figma-reader extract --node-id 1:3595
 
 # Then in Claude Code, ask it to read the files
 # "Read .figma-reader/buttons/blueprint.json and .figma-reader/buttons/screenshot.png
@@ -85,7 +116,7 @@ allowed-tools:
 ---
 <steps>
 1. Ask the user for the Figma node ID (from the URL).
-2. Run: `bash -c 'source .env && node path/to/figma-reader/bin/cli.mjs extract --node-id "<node-id>"'`
+2. Run: `figma-reader extract --node-id "<node-id>"`
 3. Read the blueprint: `.figma-reader/<component>/blueprint.json`
 4. View the screenshot: `.figma-reader/<component>/screenshot.png`
 5. Read the existing design system files (colors, typography) to map tokens.
@@ -96,7 +127,7 @@ allowed-tools:
 For audits, ask Claude Code to read the report:
 
 ```bash
-node path/to/figma-reader/bin/cli.mjs audit
+figma-reader audit
 # "Read .figma-reader/audit-2025-01-15.md and fix the top 3 color mismatches"
 ```
 
@@ -105,7 +136,7 @@ node path/to/figma-reader/bin/cli.mjs audit
 Extract the component, then reference the outputs in Cursor's chat or composer:
 
 ```bash
-node path/to/figma-reader/bin/cli.mjs extract --node-id 1:3595
+figma-reader extract --node-id 1:3595
 ```
 
 In Cursor chat:
@@ -134,7 +165,7 @@ When building components from Figma blueprints (.figma-reader/*/blueprint.json):
 Codex works with file context. Extract first, then reference:
 
 ```bash
-node path/to/figma-reader/bin/cli.mjs extract --node-id 1:3595
+figma-reader extract --node-id 1:3595
 ```
 
 Then in Codex:
@@ -150,7 +181,7 @@ Implement all 12 variants as props (enabled, type, size).
 Same pattern — extract, then reference in Cascade:
 
 ```bash
-node path/to/figma-reader/bin/cli.mjs extract --node-id 1:3595
+figma-reader extract --node-id 1:3595
 ```
 
 ```
@@ -192,13 +223,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Clone figma-reader
-        run: git clone https://github.com/Zaelot-Inc/figma-reader.git /tmp/figma-reader
+      - name: Install figma-reader
+        run: npm install -g github:Zaelot-Inc/figma-reader
       - name: Run audit
         env:
           FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: node /tmp/figma-reader/bin/cli.mjs audit
+        run: figma-reader audit
       - name: Upload report
         uses: actions/upload-artifact@v4
         with:

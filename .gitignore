@@ -1,4 +1,5 @@
 node_modules/
 .figma-reader/
+.figma-reader.json
 .env
 *.log

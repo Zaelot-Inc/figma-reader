@@ -1,6 +1,6 @@
 {
   "name": "@zaelot/figma-reader",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Extract and audit Figma design systems using the Figma REST API + Claude API. Zero-dependency CLI.",
   "type": "module",
   "bin": {

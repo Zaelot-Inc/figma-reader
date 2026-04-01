@@ -54,12 +54,25 @@ pnpm add -D github:Zaelot-Inc/figma-reader
 npm install -D github:Zaelot-Inc/figma-reader
 ```
 
-Then run it via your package manager:
+Then add a script shortcut to your project's `package.json`:
+
+```json
+{
+  "scripts": {
+    "figma": "figma-reader"
+  }
+}
+```
+
+Now you can run it without prefixes:
 
 ```bash
-pnpm figma-reader --help
-npx figma-reader --help
+pnpm figma init
+pnpm figma extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
+pnpm figma browse
 ```
+
+> Without the script, you'd need `npx figma-reader`, `pnpm figma-reader`, or `yarn figma-reader` every time.
 
 This lets each project have its own `.figma-reader.json` config with the `fileKey` already set, so team members only need to provide their Figma token.
 

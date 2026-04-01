@@ -136,14 +136,14 @@ async function main() {
   const FIGMA_TOKEN = args.figmaToken || process.env.FIGMA_TOKEN || config.figmaToken;
   const ANTHROPIC_API_KEY = args.anthropicKey || process.env.ANTHROPIC_API_KEY || config.anthropicKey;
 
-  // ── init (does not require tokens) ──
+  // ── init (interactive — prompts for missing values) ──
   if (args.command === "init") {
     const url = args.url || args._positional;
-    const figma = FIGMA_TOKEN ? createFigmaClient(FIGMA_TOKEN) : null;
     await init({
-      figma,
       url,
       fileKey: args.fileKey,
+      figmaToken: FIGMA_TOKEN || undefined,
+      anthropicKey: ANTHROPIC_API_KEY || undefined,
       cwd: process.cwd(),
       log,
     });

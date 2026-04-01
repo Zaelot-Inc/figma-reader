@@ -1,15 +1,17 @@
 /**
  * figma-reader init
  *
- * Creates a .figma-reader.json config file by:
- * 1. Parsing a Figma URL to get file key + node ID
- * 2. Fetching file metadata to auto-populate name
+ * Interactive setup that creates a .figma-reader.json config file by:
+ * 1. Prompting for Figma token, file key, and Anthropic key
+ * 2. Fetching file metadata to validate the token + key
  * 3. Scanning the local directory for common design system paths
  */
 
-import { writeFileSync, existsSync, readdirSync } from "fs";
+import { writeFileSync, existsSync } from "fs";
 import { join } from "path";
+import { createInterface } from "readline";
 import { parseFigmaUrl } from "./browse.mjs";
+import { createFigmaClient } from "./figma.mjs";
 
 /** Common design system file patterns to look for */
 const FILE_PATTERNS = [
@@ -46,7 +48,6 @@ function scanFiles(cwd, sourceRoot) {
         found[pattern.label] = path;
         break;
       }
-      // Also check without sourceRoot prefix
       const fullDirect = join(cwd, path);
       if (existsSync(fullDirect)) {
         found[pattern.label] = path;
@@ -76,100 +77,157 @@ function scanDirs(cwd, sourceRoot) {
   return found;
 }
 
+function createPrompt() {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const ask = (question) => new Promise((resolve) => rl.question(question, resolve));
+  const close = () => rl.close();
+  return { ask, close };
+}
+
 /**
- * Initialize a .figma-reader.json config file.
+ * Initialize a .figma-reader.json config file interactively.
+ *
+ * If CLI args are provided, they skip the corresponding prompts.
  *
  * @param {object} options
- * @param {ReturnType<import('./figma.mjs').createFigmaClient>} [options.figma]
  * @param {string} [options.url] - Figma URL to parse
  * @param {string} [options.fileKey] - Direct file key
- * @param {string} [options.nodeId] - Direct node ID
+ * @param {string} [options.figmaToken] - Figma token from CLI/env
+ * @param {string} [options.anthropicKey] - Anthropic key from CLI/env
  * @param {string} [options.cwd] - Working directory
  * @param {function} [options.log]
  */
-export async function init({ figma, url, fileKey, cwd = process.cwd(), log = () => {} }) {
+export async function init({ url, fileKey, figmaToken, anthropicKey, cwd = process.cwd(), log = () => {} }) {
   const configPath = join(cwd, ".figma-reader.json");
 
   if (existsSync(configPath)) {
-    log("Warning: .figma-reader.json already exists. It will be overwritten.");
+    log("Warning: .figma-reader.json already exists. It will be overwritten.\n");
   }
 
-  // Parse Figma URL if provided
-  if (url) {
-    const parsed = parseFigmaUrl(url);
-    fileKey = fileKey || parsed.fileKey;
-  }
+  const { ask, close } = createPrompt();
 
-  let fileName = null;
-  let pages = [];
-
-  // Fetch file info if we have a figma client and file key
-  if (figma && fileKey) {
-    log(`Fetching file info from Figma...`);
-    try {
-      const file = await figma.getFile(fileKey, 1);
-      fileName = file.name;
-      pages = (file.document?.children || []).map((p) => ({
-        id: p.id,
-        name: p.name,
-        children: p.children?.length || 0,
-      }));
-      log(`  File: ${fileName}`);
-      log(`  Pages: ${pages.length}`);
-      for (const p of pages) {
-        log(`    ${p.id.padEnd(10)} ${p.name} (${p.children} nodes)`);
+  try {
+    // 1. Figma token
+    if (!figmaToken) {
+      log("Create a token at: Figma > Settings > Personal Access Tokens");
+      figmaToken = (await ask("Figma token: ")).trim();
+      if (!figmaToken) {
+        log("  Skipped — you can add figmaToken to .figma-reader.json later.");
       }
-    } catch (e) {
-      log(`  Warning: could not fetch file info (${e.message})`);
+      log("");
     }
-  }
 
-  // Scan local project
-  log("Scanning project directory...");
-  const sourceRoot = findSourceRoot(cwd);
-  log(`  Source root: ${sourceRoot}`);
-
-  const files = scanFiles(cwd, sourceRoot);
-  const directories = scanDirs(cwd, sourceRoot);
-
-  if (Object.keys(files).length > 0) {
-    log("  Found design system files:");
-    for (const [label, path] of Object.entries(files)) {
-      log(`    ${label}: ${path}`);
+    // 2. File key (or URL)
+    if (!fileKey && url) {
+      const parsed = parseFigmaUrl(url);
+      fileKey = parsed.fileKey;
     }
-  } else {
-    log("  No design system files detected (you can add them manually)");
-  }
-
-  if (Object.keys(directories).length > 0) {
-    log("  Found component directories:");
-    for (const [label, path] of Object.entries(directories)) {
-      log(`    ${label}: ${path}`);
+    if (!fileKey) {
+      log("Paste a Figma file URL or just the file key from the URL.");
+      log("  URL format: https://www.figma.com/design/FILE_KEY/Name");
+      const input = (await ask("Figma file URL or key: ")).trim();
+      if (input) {
+        if (input.includes("figma.com")) {
+          const parsed = parseFigmaUrl(input);
+          fileKey = parsed.fileKey;
+        } else {
+          fileKey = input;
+        }
+      }
+      log("");
     }
+
+    // Validate token + file key by fetching file info
+    let fileName = null;
+    let pages = [];
+    if (figmaToken && fileKey) {
+      log("Fetching file info from Figma...");
+      try {
+        const figma = createFigmaClient(figmaToken);
+        const file = await figma.getFile(fileKey, 1);
+        fileName = file.name;
+        pages = (file.document?.children || []).map((p) => ({
+          id: p.id,
+          name: p.name,
+          children: p.children?.length || 0,
+        }));
+        log(`  File: ${fileName}`);
+        log(`  Pages: ${pages.length}`);
+        for (const p of pages) {
+          log(`    ${p.id.padEnd(10)} ${p.name} (${p.children} nodes)`);
+        }
+      } catch (e) {
+        log(`  Warning: could not fetch file info (${e.message})`);
+      }
+      log("");
+    }
+
+    // 3. Anthropic key
+    if (!anthropicKey) {
+      log("Get one at: https://console.anthropic.com/");
+      log("Required for extract --ai full and audit. Optional otherwise.");
+      anthropicKey = (await ask("Anthropic API key (optional): ")).trim();
+      if (!anthropicKey) {
+        log("  Skipped — you can add anthropicKey to .figma-reader.json later.");
+      }
+      log("");
+    }
+
+    // Scan local project
+    log("Scanning project directory...");
+    const sourceRoot = findSourceRoot(cwd);
+    log(`  Source root: ${sourceRoot}`);
+
+    const files = scanFiles(cwd, sourceRoot);
+    const directories = scanDirs(cwd, sourceRoot);
+
+    if (Object.keys(files).length > 0) {
+      log("  Found design system files:");
+      for (const [label, path] of Object.entries(files)) {
+        log(`    ${label}: ${path}`);
+      }
+    } else {
+      log("  No design system files detected (you can add them manually)");
+    }
+
+    if (Object.keys(directories).length > 0) {
+      log("  Found component directories:");
+      for (const [label, path] of Object.entries(directories)) {
+        log(`    ${label}: ${path}`);
+      }
+    }
+
+    // Build config
+    const config = {
+      fileKey: fileKey || "your-figma-file-key",
+      ...(figmaToken ? { figmaToken } : {}),
+      ...(anthropicKey ? { anthropicKey } : {}),
+      sourceRoot,
+      outDir: ".figma-reader",
+      claudeModel: "claude-sonnet-4-6",
+      files: Object.keys(files).length > 0 ? files : {
+        "Colors": "theme/colors.ts",
+        "Typography": "theme/fonts.ts",
+      },
+      directories: Object.keys(directories).length > 0 ? directories : {
+        "Components": "components/",
+      },
+    };
+
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+    log("");
+    log(`Created: ${configPath}`);
+
+    if (fileName) {
+      log(`  Figma file: ${fileName}`);
+    }
+    if (figmaToken || anthropicKey) {
+      log("");
+      log("  Remember to add .figma-reader.json to your .gitignore!");
+    }
+
+    return config;
+  } finally {
+    close();
   }
-
-  // Build config
-  const config = {
-    fileKey: fileKey || "your-figma-file-key",
-    sourceRoot,
-    outDir: ".figma-reader",
-    claudeModel: "claude-sonnet-4-6",
-    files: Object.keys(files).length > 0 ? files : {
-      "Colors": "theme/colors.ts",
-      "Typography": "theme/fonts.ts",
-    },
-    directories: Object.keys(directories).length > 0 ? directories : {
-      "Components": "components/",
-    },
-  };
-
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-  log("");
-  log(`Created: ${configPath}`);
-
-  if (fileName) {
-    log(`  Figma file: ${fileName}`);
-  }
-
-  return config;
 }

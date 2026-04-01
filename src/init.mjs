@@ -87,7 +87,7 @@ function scanDirs(cwd, sourceRoot) {
  * @param {string} [options.cwd] - Working directory
  * @param {function} [options.log]
  */
-export async function init({ figma, url, fileKey, nodeId, cwd = process.cwd(), log = () => {} }) {
+export async function init({ figma, url, fileKey, cwd = process.cwd(), log = () => {} }) {
   const configPath = join(cwd, ".figma-reader.json");
 
   if (existsSync(configPath)) {
@@ -98,7 +98,6 @@ export async function init({ figma, url, fileKey, nodeId, cwd = process.cwd(), l
   if (url) {
     const parsed = parseFigmaUrl(url);
     fileKey = fileKey || parsed.fileKey;
-    nodeId = nodeId || parsed.nodeId;
   }
 
   let fileName = null;
@@ -152,7 +151,6 @@ export async function init({ figma, url, fileKey, nodeId, cwd = process.cwd(), l
   // Build config
   const config = {
     fileKey: fileKey || "your-figma-file-key",
-    nodeId: nodeId || (pages.length > 0 ? pages[0].id : "1:2"),
     sourceRoot,
     outDir: ".figma-reader",
     claudeModel: "claude-sonnet-4-6",
@@ -171,12 +169,6 @@ export async function init({ figma, url, fileKey, nodeId, cwd = process.cwd(), l
 
   if (fileName) {
     log(`  Figma file: ${fileName}`);
-  }
-  if (pages.length > 0 && !nodeId) {
-    log(`  Tip: set "nodeId" to a specific page for audits. Available pages:`);
-    for (const p of pages) {
-      log(`    "${p.id}" — ${p.name}`);
-    }
   }
 
   return config;

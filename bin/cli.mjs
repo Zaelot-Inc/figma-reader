@@ -65,7 +65,7 @@ figma-reader — Extract and audit Figma design systems
 Usage:
   figma-reader init    [--url <figma-url>] [--file-key KEY]
   figma-reader browse  [--node-id ID] [--components] [--styles]
-  figma-reader extract --node-id <id> [options]
+  figma-reader extract <figma-url> | --node-id <id> [options]
   figma-reader audit   [options]
 
 Commands:
@@ -110,7 +110,10 @@ Examples:
   # List all published components
   figma-reader browse --components
 
-  # Extract a component
+  # Extract a component (pass the full Figma URL)
+  figma-reader extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
+
+  # Or use --node-id (file-key from .figma-reader.json)
   figma-reader extract --node-id 1:3595
 
   # Audit DLS against codebase
@@ -127,9 +130,25 @@ async function main() {
     process.exit(args.help || args.command === "--help" || args.command === "-h" ? 0 : 1);
   }
 
-  // CLI args take priority over env vars
-  const FIGMA_TOKEN = args.figmaToken || process.env.FIGMA_TOKEN;
-  const ANTHROPIC_API_KEY = args.anthropicKey || process.env.ANTHROPIC_API_KEY;
+  const config = loadConfig();
+
+  // Priority: CLI flags > env vars > config file
+  const FIGMA_TOKEN = args.figmaToken || process.env.FIGMA_TOKEN || config.figmaToken;
+  const ANTHROPIC_API_KEY = args.anthropicKey || process.env.ANTHROPIC_API_KEY || config.anthropicKey;
+
+  // ── init (does not require tokens) ──
+  if (args.command === "init") {
+    const url = args.url || args._positional;
+    const figma = FIGMA_TOKEN ? createFigmaClient(FIGMA_TOKEN) : null;
+    await init({
+      figma,
+      url,
+      fileKey: args.fileKey,
+      cwd: process.cwd(),
+      log,
+    });
+    return;
+  }
 
   // Claude is required for: audit always, extract --ai full
   // Claude is optional for: extract (used for name resolution with Haiku if available)
@@ -137,32 +156,17 @@ async function main() {
 
   if (!FIGMA_TOKEN) {
     log("Error: FIGMA_TOKEN is required.");
-    log("  Pass via --figma-token <token> or set FIGMA_TOKEN env var.");
+    log("  Pass via --figma-token <token>, set FIGMA_TOKEN env var, or add figmaToken to .figma-reader.json");
     log("  Create one at: Figma > Settings > Personal Access Tokens");
     process.exit(1);
   }
   if (needsClaude && !ANTHROPIC_API_KEY) {
     log(`Error: ANTHROPIC_API_KEY is required for ${args.command}${args.ai ? " --ai" : ""}.`);
-    log("  Pass via --anthropic-key <key> or set ANTHROPIC_API_KEY env var.");
+    log("  Pass via --anthropic-key <key>, set ANTHROPIC_API_KEY env var, or add anthropicKey to .figma-reader.json");
     process.exit(1);
   }
 
-  const config = loadConfig();
   const figma = createFigmaClient(FIGMA_TOKEN);
-
-  // ── init ──
-  if (args.command === "init") {
-    const url = args.url || args._positional;
-    await init({
-      figma,
-      url,
-      fileKey: args.fileKey,
-      nodeId: args.nodeId,
-      cwd: process.cwd(),
-      log,
-    });
-    return;
-  }
 
   // ── browse ──
   if (args.command === "browse") {
@@ -210,10 +214,20 @@ async function main() {
 
   // ── extract ──
   if (args.command === "extract") {
+    // Accept a Figma URL via --url or as a positional argument
+    const urlInput = args.url || (args._positional && args._positional.includes("figma.com") ? args._positional : null);
+    if (urlInput) {
+      const { parseFigmaUrl } = await import("../src/browse.mjs");
+      const parsed = parseFigmaUrl(urlInput);
+      if (!args.fileKey && parsed.fileKey) args.fileKey = parsed.fileKey;
+      if (!args.nodeId && parsed.nodeId) args.nodeId = parsed.nodeId;
+    }
+
     let nodeId = args.nodeId;
     if (!nodeId) {
-      log("Error: --node-id is required for extract");
-      log("  Copy from Figma URL: node-id=X-Y → use X-Y or X:Y");
+      log("Error: --node-id is required for extract (or pass a Figma URL with node-id)");
+      log("  figma-reader extract --url \"https://www.figma.com/design/KEY/Name?node-id=1-234\"");
+      log("  figma-reader extract \"https://www.figma.com/design/KEY/Name?node-id=1-234\"");
       process.exit(1);
     }
     nodeId = nodeId.replace(/-/g, ":");

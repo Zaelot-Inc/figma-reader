@@ -36,18 +36,55 @@ Figma REST API ──> figma-reader ──> blueprint.json + screenshot.png ─�
 
 | Command | Needs Claude API? | Description |
 |---|---|---|
-| `init` | No | Create `.figma-reader.json` from a Figma URL, auto-detect project files |
+| `init` | No | Create `.figma-reader.json` config (no tokens required) |
 | `browse` | No | Navigate a Figma file: pages, frames, components, styles |
-| `extract` | Yes | Fetch a component, clean it into a blueprint + screenshot |
+| `extract` | Optional | Fetch a component via URL or node ID, export blueprint + screenshot |
 | `audit` | Yes | Compare Figma DLS against your codebase, generate diff report |
 
 ## Install
 
-```bash
-npm install -g github:Zaelot-Inc/figma-reader
+### As a project dependency (recommended)
 
-# Or with pnpm
+Install it as a dev dependency in the project where you'll use it:
+
+```bash
+pnpm add -D github:Zaelot-Inc/figma-reader
+
+# Or with npm
+npm install -D github:Zaelot-Inc/figma-reader
+```
+
+Then run it via your package manager:
+
+```bash
+pnpm figma-reader --help
+npx figma-reader --help
+```
+
+This lets each project have its own `.figma-reader.json` config with the `fileKey` already set, so team members only need to provide their Figma token.
+
+### Updating
+
+Package managers cache the git commit hash, so `update` doesn't always pull the latest. Use remove + add to force it:
+
+```bash
+# pnpm
+pnpm remove figma-reader && pnpm add -D github:Zaelot-Inc/figma-reader
+
+# yarn
+yarn remove figma-reader && yarn add -D github:Zaelot-Inc/figma-reader
+
+# npm
+npm uninstall figma-reader && npm install -D github:Zaelot-Inc/figma-reader
+```
+
+### Global install
+
+```bash
 pnpm add -g github:Zaelot-Inc/figma-reader
+
+# Or with npm
+npm install -g github:Zaelot-Inc/figma-reader
 ```
 
 ### Run without installing
@@ -58,16 +95,30 @@ npx github:Zaelot-Inc/figma-reader --help
 
 ## Authentication
 
-Tokens can be passed via CLI flags or environment variables. Flags take priority.
+Tokens are resolved in this order: **CLI flags > env vars > `.figma-reader.json`**.
+
+The simplest setup is to put them in `.figma-reader.json` (make sure it's in `.gitignore`):
+
+```json
+{
+  "fileKey": "your-figma-file-key",
+  "figmaToken": "figd_xxx",
+  "anthropicKey": "sk-ant-xxx"
+}
+```
+
+Or via environment variables:
 
 ```bash
-# Via flags
-figma-reader browse --figma-token figd_xxx
-figma-reader extract --node-id 1:3595 --figma-token figd_xxx --anthropic-key sk-ant-xxx
-
-# Via env vars
 export FIGMA_TOKEN=figd_xxx
 export ANTHROPIC_API_KEY=sk-ant-xxx
+```
+
+Or via CLI flags:
+
+```bash
+figma-reader browse --figma-token figd_xxx
+figma-reader extract --node-id 1:3595 --figma-token figd_xxx --anthropic-key sk-ant-xxx
 ```
 
 ### Figma token
@@ -90,18 +141,27 @@ Get one at [console.anthropic.com](https://console.anthropic.com/). Only require
 ## Quick start
 
 ```bash
-# 1. Init config from a Figma URL (auto-detects your project's design system files)
+# 1. Init config (no tokens needed — just sets up .figma-reader.json)
+figma-reader init --file-key ABC123
+
+# Or from a full Figma URL
 figma-reader init --url "https://www.figma.com/design/ABC123/My-DLS?node-id=1-2"
 
-# 2. Browse the Figma file
+# 2. Add .figma-reader.json to .gitignore (contains your file key)
+echo ".figma-reader.json" >> .gitignore
+
+# 3. Browse the Figma file
 figma-reader browse                    # list pages
 figma-reader browse --node-id 1:9133   # drill into a section
 figma-reader browse --components       # list all component sets
 
-# 3. Extract a component into a blueprint + screenshot
+# 4. Extract a component — paste the Figma URL directly
+figma-reader extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
+
+# Or use --node-id (file key comes from .figma-reader.json)
 figma-reader extract --node-id 1:3595
 
-# 4. Audit the full DLS against your codebase
+# 5. Audit the full DLS against your codebase
 figma-reader audit
 ```
 
@@ -111,9 +171,17 @@ figma-reader audit
 
 Creates a `.figma-reader.json` config file. Parses the Figma URL, fetches file metadata, and scans your project for design system files (colors, typography, components).
 
+No tokens are required — if you provide a Figma token, it will also fetch file metadata (name, pages).
+
 ```bash
-figma-reader init --url "https://www.figma.com/design/FILE_KEY/Name?node-id=1-2"
-figma-reader init --file-key FILE_KEY --node-id 1:2
+# Minimal — just set the file key
+figma-reader init --file-key FILE_KEY
+
+# From a Figma URL (extracts file key)
+figma-reader init --url "https://www.figma.com/design/FILE_KEY/Name"
+
+# With token — also fetches file name and pages
+figma-reader init --url "https://www.figma.com/design/FILE_KEY/Name" --figma-token figd_xxx
 ```
 
 ### `browse`
@@ -147,7 +215,13 @@ Pages:
 
 Fetches a Figma component, cleans the raw JSON into a structured blueprint using Claude, and exports a rendered screenshot.
 
+You can pass a full Figma URL directly — it extracts the file key and node ID automatically:
+
 ```bash
+# Paste the URL straight from Figma
+figma-reader extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
+
+# Or use --node-id (file key from .figma-reader.json)
 figma-reader extract --node-id 1:3595
 figma-reader extract --node-id 1:3595 --name "MyButton"
 ```
@@ -183,7 +257,8 @@ Place `.figma-reader.json` in your project root (or run `init` to generate it):
 ```json
 {
   "fileKey": "your-figma-file-key",
-  "nodeId": "1:9407",
+  "figmaToken": "figd_xxx",
+  "anthropicKey": "sk-ant-xxx",
   "sourceRoot": "./src",
   "outDir": ".figma-reader",
   "claudeModel": "claude-sonnet-4-6",
@@ -198,10 +273,13 @@ Place `.figma-reader.json` in your project root (or run `init` to generate it):
 }
 ```
 
+> **Important:** Since `.figma-reader.json` contains API keys, add it to your `.gitignore`.
+
 | Field | Description |
 |---|---|
 | `fileKey` | Figma file key (from the URL) |
-| `nodeId` | Default node ID for audit (usually the DLS root) |
+| `figmaToken` | Figma Personal Access Token |
+| `anthropicKey` | Anthropic API key |
 | `sourceRoot` | Path to your source code root |
 | `outDir` | Where to write output files |
 | `claudeModel` | Claude model for extract/audit |
@@ -249,7 +327,7 @@ The `blueprint.json` is framework-agnostic. It uses flexbox layout, hex colors, 
 The workflow is always the same:
 
 ```
-1. figma-reader extract --node-id <id>     →  blueprint.json + screenshot.png
+1. figma-reader extract "<figma-url>"     →  blueprint.json + screenshot.png
 2. Give both files to your AI tool
 3. AI reads the structured spec + sees the visual reference
 4. AI generates code matching the design
@@ -258,7 +336,7 @@ The workflow is always the same:
 ### Claude Code
 
 ```bash
-figma-reader extract --node-id 1:3595
+figma-reader extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
 
 # Then ask Claude Code:
 # "Read .figma-reader/buttons/blueprint.json and .figma-reader/buttons/screenshot.png
@@ -278,8 +356,8 @@ allowed-tools:
   - Bash
 ---
 <steps>
-1. Ask the user for the Figma node ID (from the URL).
-2. Run: `figma-reader extract --node-id "<node-id>"`
+1. Ask the user for the Figma component URL.
+2. Run: `figma-reader extract "<figma-url>"`
 3. Read the blueprint: `.figma-reader/<component>/blueprint.json`
 4. View the screenshot: `.figma-reader/<component>/screenshot.png`
 5. Read the existing design system files (colors, typography) to map tokens.
@@ -290,7 +368,7 @@ allowed-tools:
 ### Cursor
 
 ```bash
-figma-reader extract --node-id 1:3595
+figma-reader extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
 ```
 
 In Cursor chat:
@@ -311,7 +389,7 @@ When building components from Figma blueprints (.figma-reader/*/blueprint.json):
 ### Codex (OpenAI)
 
 ```bash
-figma-reader extract --node-id 1:3595
+figma-reader extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
 ```
 
 ```
@@ -324,7 +402,7 @@ Implement all 12 variants as props (enabled, type, size).
 ### Windsurf
 
 ```bash
-figma-reader extract --node-id 1:3595
+figma-reader extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
 ```
 
 ```
@@ -371,7 +449,7 @@ jobs:
 |---|---|---|
 | `--file-key KEY` | Figma file key | from config |
 | `--node-id ID` | Node ID (supports `1-234` and `1:234`) | from config |
-| `--url URL` | Figma URL (init/browse) | — |
+| `--url URL` | Figma URL (init/browse/extract) | — |
 | `--name NAME` | Override component name (extract) | from Figma |
 | `--depth N` | Node tree depth | 10 (extract), 6 (audit), 2 (browse) |
 | `--out DIR` | Output directory | `.figma-reader/` |

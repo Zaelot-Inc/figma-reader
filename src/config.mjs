@@ -10,7 +10,8 @@ const CONFIG_FILE = ".figma-reader.json";
 
 const DEFAULT_CONFIG = {
   fileKey: null,
-  nodeId: null,
+  figmaToken: null,
+  anthropicKey: null,
   sourceRoot: ".",
   outDir: ".figma-reader",
   claudeModel: "claude-sonnet-4-6",

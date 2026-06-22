@@ -68,11 +68,15 @@ export function resolveFileKey(source = {}, config = {}) {
   const fileKeys = config.fileKeys && typeof config.fileKeys === "object" ? config.fileKeys : {};
   const aliases = Object.keys(fileKeys);
 
+  // Map a raw key back to its configured alias, if one matches. Lets a key
+  // passed via URL or --file-key reuse its friendly name (e.g. for output dirs).
+  const aliasFor = (key) => aliases.find((a) => fileKeys[a] === key) || null;
+
   // 1. Raw key from --file-key always wins.
-  if (source.fileKey) return { fileKey: source.fileKey, alias: null };
+  if (source.fileKey) return { fileKey: source.fileKey, alias: aliasFor(source.fileKey) };
 
   // 2. Key parsed from a Figma URL.
-  if (source.urlFileKey) return { fileKey: source.urlFileKey, alias: null };
+  if (source.urlFileKey) return { fileKey: source.urlFileKey, alias: aliasFor(source.urlFileKey) };
 
   // 3. Explicit alias selection via --file.
   if (source.alias) {

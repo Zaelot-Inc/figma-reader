@@ -239,13 +239,23 @@ figma-reader extract --node-id 1:3595
 figma-reader extract --node-id 1:3595 --name "MyButton"
 ```
 
-Output in `.figma-reader/<component>/`:
+Output in `.figma-reader/<file>/<component>/`:
 
 | File | Description |
 |---|---|
 | `blueprint.json` | Clean component spec — layout, styles, children, variants |
 | `screenshot.png` | Rendered image of the component from Figma |
 | `raw.json` | Original Figma node data (for debugging) |
+
+Output is grouped per Figma file, so extracting components from different files never overwrites your results. The `<file>` segment is the alias (when using `--file <alias>`) or the file key (when passing a URL or `--file-key`):
+
+```bash
+figma-reader extract "https://www.figma.com/design/DEF456/Icons?node-id=1-42"
+# → .figma-reader/def456/<component>/
+
+figma-reader extract "https://www.figma.com/design/BDD516/Buttons?node-id=3-50"
+# → .figma-reader/bdd516/<component>/
+```
 
 ### `audit`
 
@@ -290,7 +300,9 @@ Place `.figma-reader.json` in your project root (or run `init` to generate it):
 
 | Field | Description |
 |---|---|
-| `fileKey` | Figma file key (from the URL) |
+| `fileKey` | Figma file key (from the URL) — single-file projects |
+| `fileKeys` | Map of `alias` → file key, for projects that read from several Figma files |
+| `defaultFileKey` | Which key to use when none is selected (an alias from `fileKeys`, or a raw key) |
 | `figmaToken` | Figma Personal Access Token |
 | `anthropicKey` | Anthropic API key |
 | `sourceRoot` | Path to your source code root |
@@ -298,6 +310,41 @@ Place `.figma-reader.json` in your project root (or run `init` to generate it):
 | `claudeModel` | Claude model for extract/audit |
 | `files` | Map of label → relative path for design system files |
 | `directories` | Map of label → relative path for component directories |
+
+### Multiple Figma files
+
+Some projects pull from more than one Figma file — say a design system, a separate icon library, and a marketing kit. Configure them all under `fileKeys` and pick one per command with `--file <alias>`:
+
+```json
+{
+  "fileKeys": {
+    "dls": "ABC123...",
+    "icons": "DEF456...",
+    "marketing": "GHI789..."
+  },
+  "defaultFileKey": "dls",
+  "figmaToken": "figd_xxx"
+}
+```
+
+```bash
+figma-reader browse                       # uses defaultFileKey ("dls")
+figma-reader browse --file icons          # uses the "icons" key
+figma-reader extract --file icons --node-id 1:42
+```
+
+`figma-reader init` will set this up for you — paste several file URLs when prompted and it derives an alias from each file's name.
+
+The file key is resolved in this order:
+
+1. `--file-key KEY` (a raw key on the CLI)
+2. A key parsed from a Figma URL passed to the command
+3. `--file <alias>` (a named key from `fileKeys`)
+4. `defaultFileKey`
+5. The legacy single `fileKey`
+6. The sole entry in `fileKeys`, if only one is configured
+
+If several files are configured and none is selected, the command lists the available aliases and exits. The single `fileKey` field still works as before for single-file projects.
 
 ## Blueprint format
 
@@ -370,9 +417,9 @@ allowed-tools:
 ---
 <steps>
 1. Ask the user for the Figma component URL.
-2. Run: `figma-reader extract "<figma-url>"`
-3. Read the blueprint: `.figma-reader/<component>/blueprint.json`
-4. View the screenshot: `.figma-reader/<component>/screenshot.png`
+2. Run: `figma-reader extract "<figma-url>"` (it prints the output path as JSON)
+3. Read the blueprint: `.figma-reader/<file>/<component>/blueprint.json`
+4. View the screenshot: `.figma-reader/<file>/<component>/screenshot.png`
 5. Read the existing design system files (colors, typography) to map tokens.
 6. Generate the component following the project's conventions.
 </steps>
@@ -461,6 +508,7 @@ jobs:
 | Flag | Description | Default |
 |---|---|---|
 | `--file-key KEY` | Figma file key | from config |
+| `--file ALIAS` | Select a named key from `fileKeys` | `defaultFileKey` |
 | `--node-id ID` | Node ID (supports `1-234` and `1:234`) | from config |
 | `--url URL` | Figma URL (init/browse/extract) | — |
 | `--name NAME` | Override component name (extract) | from Figma |

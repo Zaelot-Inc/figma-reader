@@ -8,10 +8,14 @@
  *   - --ai: Claude-powered cleaning (better semantic names, costs ~$0.02)
  *
  * Output:
- *   <outDir>/<component-slug>/
+ *   <outDir>/[<namespace>/]<component-slug>/
  *     blueprint.json   — cleaned component spec
  *     screenshot.png   — rendered component image
  *     raw.json         — original Figma node data
+ *
+ * When a `namespace` is given (the file alias or key), output is grouped per
+ * file so components extracted from different Figma files don't overwrite
+ * each other.
  */
 
 import { writeFileSync, mkdirSync, existsSync } from "fs";
@@ -105,13 +109,14 @@ Return ONLY the JSON object. No explanation, no markdown.`;
  * @param {string} options.fileKey - Figma file key
  * @param {string} options.nodeId - Node ID (colon-separated)
  * @param {string} options.outDir - Output directory
+ * @param {string} [options.namespace] - Per-file subfolder (alias or file key); groups output by Figma file
  * @param {string} [options.name] - Override component name
  * @param {number} [options.depth=10] - Node tree depth
  * @param {boolean} [options.ai=false] - Use Claude for cleaning (better names, costs ~$0.02)
  * @param {function} [options.log] - Logging function
  * @returns {Promise<object>} Summary of extracted files
  */
-export async function extract({ figma, claude, fileKey, nodeId, outDir, name, depth = 10, ai = false, log = () => {} }) {
+export async function extract({ figma, claude, fileKey, nodeId, outDir, namespace, name, depth = 10, ai = false, log = () => {} }) {
   log(`Extracting component ${nodeId} from ${fileKey}`);
 
   // Step 1: Fetch node data + screenshot in parallel
@@ -161,7 +166,8 @@ export async function extract({ figma, claude, fileKey, nodeId, outDir, name, de
   }
 
   // Step 3: Write output files
-  const componentDir = join(outDir, slug);
+  const baseDir = namespace ? join(outDir, slugify(namespace)) : outDir;
+  const componentDir = join(baseDir, slug);
   if (!existsSync(componentDir)) mkdirSync(componentDir, { recursive: true });
 
   const blueprintPath = join(componentDir, "blueprint.json");

@@ -84,6 +84,42 @@ function createPrompt() {
   return { ask, close };
 }
 
+/** Turn a Figma file name into a short, config-friendly alias. */
+function slugify(name, fallback) {
+  const slug = (name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+  return slug || fallback;
+}
+
+/**
+ * Validate a file key against the Figma API and return its name + pages.
+ * Returns { fileName: null, pages: [] } if no token or the fetch fails.
+ */
+async function fetchFileInfo(figmaToken, fileKey, log) {
+  if (!figmaToken || !fileKey) return { fileName: null, pages: [] };
+  try {
+    const figma = createFigmaClient(figmaToken);
+    const file = await figma.getFile(fileKey, 1);
+    const pages = (file.document?.children || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      children: p.children?.length || 0,
+    }));
+    log(`  File: ${file.name}`);
+    log(`  Pages: ${pages.length}`);
+    for (const p of pages) {
+      log(`    ${p.id.padEnd(10)} ${p.name} (${p.children} nodes)`);
+    }
+    return { fileName: file.name, pages };
+  } catch (e) {
+    log(`  Warning: could not fetch file info (${e.message})`);
+    return { fileName: null, pages: [] };
+  }
+}
+
 /**
  * Initialize a .figma-reader.json config file interactively.
  *
@@ -117,49 +153,46 @@ export async function init({ url, fileKey, figmaToken, anthropicKey, cwd = proce
       log("");
     }
 
-    // 2. File key (or URL)
-    if (!fileKey && url) {
-      const parsed = parseFigmaUrl(url);
-      fileKey = parsed.fileKey;
-    }
-    if (!fileKey) {
-      log("Paste a Figma file URL or just the file key from the URL.");
-      log("  URL format: https://www.figma.com/design/FILE_KEY/Name");
-      const input = (await ask("Figma file URL or key: ")).trim();
-      if (input) {
-        if (input.includes("figma.com")) {
-          const parsed = parseFigmaUrl(input);
-          fileKey = parsed.fileKey;
-        } else {
-          fileKey = input;
-        }
-      }
-      log("");
+    // 2. Files — collect one or more Figma files.
+    // A --file-key/--url flag seeds a single file and skips the prompt loop.
+    const figmaFiles = []; // { fileKey, alias, fileName }
+    const usedAliases = new Set();
+
+    function addFile(key, fileName) {
+      const base = slugify(fileName, `file-${figmaFiles.length + 1}`);
+      let alias = base;
+      let n = 2;
+      while (usedAliases.has(alias)) alias = `${base}-${n++}`;
+      usedAliases.add(alias);
+      figmaFiles.push({ fileKey: key, fileName, alias });
     }
 
-    // Validate token + file key by fetching file info
-    let fileName = null;
-    let pages = [];
-    if (figmaToken && fileKey) {
+    const seedKey = fileKey || (url ? parseFigmaUrl(url).fileKey : null);
+    if (seedKey) {
       log("Fetching file info from Figma...");
-      try {
-        const figma = createFigmaClient(figmaToken);
-        const file = await figma.getFile(fileKey, 1);
-        fileName = file.name;
-        pages = (file.document?.children || []).map((p) => ({
-          id: p.id,
-          name: p.name,
-          children: p.children?.length || 0,
-        }));
-        log(`  File: ${fileName}`);
-        log(`  Pages: ${pages.length}`);
-        for (const p of pages) {
-          log(`    ${p.id.padEnd(10)} ${p.name} (${p.children} nodes)`);
-        }
-      } catch (e) {
-        log(`  Warning: could not fetch file info (${e.message})`);
-      }
+      const info = await fetchFileInfo(figmaToken, seedKey, log);
       log("");
+      addFile(seedKey, info.fileName);
+    } else {
+      log("Paste a Figma file URL or just the file key from the URL.");
+      log("  URL format: https://www.figma.com/design/FILE_KEY/Name");
+      log("  Add several to read from multiple files; press Enter to finish.");
+      while (true) {
+        const prompt = figmaFiles.length === 0
+          ? "Figma file URL or key: "
+          : "Add another Figma file URL or key (Enter to finish): ";
+        const input = (await ask(prompt)).trim();
+        if (!input) break;
+        const key = input.includes("figma.com") ? parseFigmaUrl(input).fileKey : input;
+        if (!key) {
+          log("  Could not parse a file key from that input.");
+          continue;
+        }
+        log("Fetching file info from Figma...");
+        const info = await fetchFileInfo(figmaToken, key, log);
+        addFile(key, info.fileName);
+        log("");
+      }
     }
 
     // 3. Anthropic key
@@ -197,9 +230,17 @@ export async function init({ url, fileKey, figmaToken, anthropicKey, cwd = proce
       }
     }
 
-    // Build config
+    // Build config.
+    // One file → legacy `fileKey`. Several → `fileKeys` map + `defaultFileKey`.
+    const fileKeyFields = figmaFiles.length > 1
+      ? {
+          fileKeys: Object.fromEntries(figmaFiles.map((f) => [f.alias, f.fileKey])),
+          defaultFileKey: figmaFiles[0].alias,
+        }
+      : { fileKey: figmaFiles[0]?.fileKey || "your-figma-file-key" };
+
     const config = {
-      fileKey: fileKey || "your-figma-file-key",
+      ...fileKeyFields,
       ...(figmaToken ? { figmaToken } : {}),
       ...(anthropicKey ? { anthropicKey } : {}),
       sourceRoot,
@@ -218,8 +259,14 @@ export async function init({ url, fileKey, figmaToken, anthropicKey, cwd = proce
     log("");
     log(`Created: ${configPath}`);
 
-    if (fileName) {
-      log(`  Figma file: ${fileName}`);
+    if (figmaFiles.length === 1 && figmaFiles[0].fileName) {
+      log(`  Figma file: ${figmaFiles[0].fileName}`);
+    } else if (figmaFiles.length > 1) {
+      log("  Figma files:");
+      for (const f of figmaFiles) {
+        log(`    ${f.alias}: ${f.fileName || f.fileKey}`);
+      }
+      log(`  Default: ${figmaFiles[0].alias} (override with --file <alias>)`);
     }
     if (figmaToken || anthropicKey) {
       log("");

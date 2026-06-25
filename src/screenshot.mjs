@@ -45,7 +45,9 @@ export async function screenshot({ figma, fileKey, nodeId, outDir, namespace, na
       nodeName = nodeId.replace(/:/g, "-");
     }
   }
-  const slug = slugify(nodeName);
+  // slugify() can return "" for names made entirely of stripped characters.
+  // Fall back to the node ID so output never lands directly in the namespace dir.
+  const slug = slugify(nodeName) || `node-${nodeId.replace(/:/g, "-")}`;
 
   log(`Fetching screenshot (scale ${scale}x, ${format})...`);
   const imageBuffer = await figma.getImage(fileKey, nodeId, { scale, format });

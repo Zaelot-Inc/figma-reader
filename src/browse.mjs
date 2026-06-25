@@ -29,9 +29,12 @@ function safeParseUrl(input) {
 export function parseFigmaUrl(input) {
   if (!input) return { fileKey: null, nodeId: null };
 
-  // Direct file key (no slashes)
+  // Direct file key: a bare token with no path. Only accept it when it actually
+  // looks like a key — Figma keys are alphanumeric — so malformed input such as
+  // "www.figma.com" (dots) or "ABC123?node-id=1" (query) falls through to URL
+  // parsing below, which returns nulls instead of mistaking it for a key.
   if (!input.includes("/")) {
-    return { fileKey: input, nodeId: null };
+    if (/^[A-Za-z0-9]+$/.test(input)) return { fileKey: input, nodeId: null };
   }
 
   // Tolerate URLs pasted without a scheme (e.g. "www.figma.com/design/...").

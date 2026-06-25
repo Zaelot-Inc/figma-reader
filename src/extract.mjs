@@ -131,7 +131,9 @@ export async function extract({ figma, claude, fileKey, nodeId, outDir, namespac
   ]);
 
   const componentName = name || nodeTree.name || "Unknown";
-  const slug = slugify(componentName);
+  // slugify() can return "" for names made entirely of stripped characters.
+  // Fall back to the node ID so output never lands directly in the namespace dir.
+  const slug = slugify(componentName) || `node-${nodeId.replace(/:/g, "-")}`;
 
   log(`  Component: "${componentName}" (${nodeTree.type})`);
   if (nodeTree.children) log(`  Children: ${nodeTree.children.length}`);

@@ -52,7 +52,8 @@ export function loadConfig(cwd = process.cwd()) {
  *   2. A key parsed from a Figma URL (`source.urlFileKey`)
  *   3. A named alias selected via `--file` (`source.alias`)
  *   4. `config.defaultFileKey` (resolved as an alias, else used as a raw key)
- *   5. The legacy single `config.fileKey`
+ *   5. The legacy single `config.fileKey`, but only when at most one named key
+ *      is configured — several named keys force an explicit `--file` choice
  *   6. The sole entry in `config.fileKeys`, if exactly one is configured
  *
  * @param {object} source
@@ -93,18 +94,20 @@ export function resolveFileKey(source = {}, config = {}) {
     return { fileKey: config.defaultFileKey, alias: null };
   }
 
-  // 5. Legacy single key.
-  if (config.fileKey) return { fileKey: config.fileKey, alias: null };
-
-  // 6. Exactly one named key — no ambiguity, use it.
-  if (aliases.length === 1) return { fileKey: fileKeys[aliases[0]], alias: aliases[0] };
-
-  // 7. Ambiguous: several configured, none chosen.
+  // 5. Ambiguous: several named keys configured but none chosen. Force a choice
+  //    even if a leftover legacy `fileKey` is present — silently preferring it
+  //    would hide the multi-file config and contradict the documented behavior.
   if (aliases.length > 1) {
     throw new Error(
       `Multiple Figma files are configured — pick one with --file <alias>. Available: ${aliases.join(", ")}`,
     );
   }
+
+  // 6. Legacy single key.
+  if (config.fileKey) return { fileKey: config.fileKey, alias: null };
+
+  // 7. Exactly one named key — no ambiguity, use it.
+  if (aliases.length === 1) return { fileKey: fileKeys[aliases[0]], alias: aliases[0] };
 
   return { fileKey: null, alias: null };
 }

@@ -5,13 +5,26 @@
  * Displays node IDs so you can use them with extract/audit.
  */
 
+/** Parse a string into a URL, returning null instead of throwing. */
+function safeParseUrl(input) {
+  try {
+    return new URL(input);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Parse a Figma URL into file key and optional node ID.
  *
  * Supports:
  *   https://www.figma.com/design/FILE_KEY/Name?node-id=1-234
  *   https://www.figma.com/file/FILE_KEY/Name?node-id=1-234
+ *   www.figma.com/design/FILE_KEY/Name (scheme optional)
  *   Just a file key string
+ *
+ * Never throws on malformed input — returns { fileKey: null, nodeId: null }
+ * so callers can fall back to prompting or a clear error message.
  */
 export function parseFigmaUrl(input) {
   if (!input) return { fileKey: null, nodeId: null };
@@ -21,7 +34,10 @@ export function parseFigmaUrl(input) {
     return { fileKey: input, nodeId: null };
   }
 
-  const url = new URL(input);
+  // Tolerate URLs pasted without a scheme (e.g. "www.figma.com/design/...").
+  const url = safeParseUrl(input) || safeParseUrl(`https://${input}`);
+  if (!url) return { fileKey: null, nodeId: null };
+
   const parts = url.pathname.split("/");
   // /design/FILE_KEY/... or /file/FILE_KEY/...
   const keyIndex = parts.findIndex((p) => p === "design" || p === "file");

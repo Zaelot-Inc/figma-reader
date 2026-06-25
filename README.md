@@ -39,6 +39,7 @@ Figma REST API ──> figma-reader ──> blueprint.json + screenshot.png ─�
 | `init` | No | Create `.figma-reader.json` config (no tokens required) |
 | `browse` | No | Navigate a Figma file: pages, frames, components, styles |
 | `extract` | Optional | Fetch a component via URL or node ID, export blueprint + screenshot |
+| `screenshot` | No | Export only the rendered image of a node (no blueprint, no raw JSON) |
 | `audit` | Yes | Compare Figma DLS against your codebase, generate diff report |
 
 ## Install
@@ -247,7 +248,7 @@ Output in `.figma-reader/<file>/<component>/`:
 | `screenshot.png` | Rendered image of the component from Figma |
 | `raw.json` | Original Figma node data (for debugging) |
 
-Output is grouped per Figma file, so extracting components from different files never overwrites your results. The `<file>` segment is the alias (when using `--file <alias>`) or the file key (when passing a URL or `--file-key`):
+Output is grouped per Figma file, so extracting components from different files never overwrites your results. The `<file>` segment prefers a configured alias when one is available — selected via `--file <alias>`, or matched back from the key in a URL / `--file-key` — and otherwise falls back to the raw file key (slugified):
 
 ```bash
 figma-reader extract "https://www.figma.com/design/DEF456/Icons?node-id=1-42"
@@ -256,6 +257,30 @@ figma-reader extract "https://www.figma.com/design/DEF456/Icons?node-id=1-42"
 figma-reader extract "https://www.figma.com/design/BDD516/Buttons?node-id=3-50"
 # → .figma-reader/bdd516/<component>/
 ```
+
+### `screenshot`
+
+Exports only the rendered image of a node — no blueprint, no raw JSON. Use it when all you need is the picture (no Anthropic API key required).
+
+```bash
+# Paste the URL straight from Figma
+figma-reader screenshot "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
+
+# Or use --node-id (file key from .figma-reader.json)
+figma-reader screenshot --node-id 1:3595
+
+# Higher resolution, or a different format
+figma-reader screenshot --node-id 1:3595 --scale 3
+figma-reader screenshot --node-id 1:3595 --format svg
+```
+
+Output in `.figma-reader/<file>/<node>/screenshot.<format>`, grouped per Figma file just like `extract`.
+
+| Flag | Description | Default |
+|---|---|---|
+| `--scale N` | Image scale factor (1-4) | `2` |
+| `--format FMT` | Image format: `png`, `jpg`, `svg`, `pdf` | `png` |
+| `--name NAME` | Override the output folder name | from Figma |
 
 ### `audit`
 
@@ -510,9 +535,11 @@ jobs:
 | `--file-key KEY` | Figma file key | from config |
 | `--file ALIAS` | Select a named key from `fileKeys` | `defaultFileKey` |
 | `--node-id ID` | Node ID (supports `1-234` and `1:234`) | from config |
-| `--url URL` | Figma URL (init/browse/extract) | — |
-| `--name NAME` | Override component name (extract) | from Figma |
+| `--url URL` | Figma URL (init/browse/extract/screenshot) | — |
+| `--name NAME` | Override component name (extract/screenshot) | from Figma |
 | `--depth N` | Node tree depth | 10 (extract), 6 (audit), 2 (browse) |
+| `--scale N` | Image scale factor 1-4 (screenshot) | `2` |
+| `--format FMT` | Image format: png/jpg/svg/pdf (screenshot) | `png` |
 | `--out DIR` | Output directory | `.figma-reader/` |
 | `--source DIR` | Codebase source root (audit) | `.` |
 | `--model MODEL` | Claude model | `claude-sonnet-4-6` |

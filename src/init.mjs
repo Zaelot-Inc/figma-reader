@@ -183,7 +183,10 @@ export async function init({ url, fileKey, figmaToken, anthropicKey, cwd = proce
           : "Add another Figma file URL or key (Enter to finish): ";
         const input = (await ask(prompt)).trim();
         if (!input) break;
-        const key = input.includes("figma.com") ? parseFigmaUrl(input).fileKey : input;
+        // parseFigmaUrl handles both full URLs and bare keys, and returns null
+        // for anything malformed — so invalid input gets a clear message
+        // instead of being written to config verbatim.
+        const key = parseFigmaUrl(input).fileKey;
         if (!key) {
           log("  Could not parse a file key from that input.");
           continue;

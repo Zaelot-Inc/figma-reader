@@ -15,6 +15,30 @@ import { writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { slugify } from "./parsers.mjs";
 
+const VALID_FORMATS = ["png", "jpg", "svg", "pdf"];
+
+/**
+ * Normalize and validate the requested image format.
+ * Lower-cases, checks against the allowed set, and rejects anything that
+ * could escape the output dir when interpolated into `screenshot.<format>`.
+ */
+function normalizeFormat(format) {
+  const f = String(format).toLowerCase();
+  if (!VALID_FORMATS.includes(f)) {
+    throw new Error(`Invalid format "${format}". Allowed: ${VALID_FORMATS.join(", ")}`);
+  }
+  return f;
+}
+
+/** Clamp the scale factor to the Figma-supported 1–4 range. */
+function normalizeScale(scale) {
+  const n = Number(scale);
+  if (!Number.isFinite(n) || n < 1 || n > 4) {
+    throw new Error(`Invalid scale "${scale}". Must be a number between 1 and 4.`);
+  }
+  return n;
+}
+
 /**
  * Export a Figma node as an image.
  *
@@ -31,6 +55,11 @@ import { slugify } from "./parsers.mjs";
  * @returns {Promise<object>} Summary of the exported screenshot
  */
 export async function screenshot({ figma, fileKey, nodeId, outDir, namespace, name, scale = 2, format = "png", log = () => {} }) {
+  // Validate untrusted CLI input before it reaches the API query or the
+  // output filename (guards against request breakage and path traversal).
+  format = normalizeFormat(format);
+  scale = normalizeScale(scale);
+
   log(`Capturing screenshot of ${nodeId} from ${fileKey}`);
 
   // Resolve a name for the output folder. Use the override when given;

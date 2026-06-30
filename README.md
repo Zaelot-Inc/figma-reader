@@ -238,9 +238,13 @@ figma-reader extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
 # Or use --node-id (file key from .figma-reader.json)
 figma-reader extract --node-id 1:3595
 figma-reader extract --node-id 1:3595 --name "MyButton"
+
+# Group by screen within the file with --screen
+figma-reader extract "https://www.figma.com/design/ABC123/App?node-id=1-3595" --screen today
+# → .figma-reader/<file>/today/<component>/
 ```
 
-Output in `.figma-reader/<file>/<component>/`:
+Output in `.figma-reader/<file>/[<screen>/]<component>/`:
 
 | File | Description |
 |---|---|
@@ -258,6 +262,13 @@ figma-reader extract "https://www.figma.com/design/BDD516/Buttons?node-id=3-50"
 # → .figma-reader/bdd516/<component>/
 ```
 
+Pass `--screen <name>` to add a screen subfolder between the file and the component, so nodes from different screens (or same-named nodes on different screens) stay separated:
+
+```bash
+figma-reader extract "https://www.figma.com/design/DEF456/App?node-id=1-42" --screen today
+# → .figma-reader/def456/today/<component>/   (or <alias>/today/… when the key is configured)
+```
+
 ### `screenshot`
 
 Exports only the rendered image of a node — no blueprint, no raw JSON. Use it when all you need is the picture (no Anthropic API key required).
@@ -272,14 +283,18 @@ figma-reader screenshot --node-id 1:3595
 # Higher resolution, or a different format
 figma-reader screenshot --node-id 1:3595 --scale 3
 figma-reader screenshot --node-id 1:3595 --format svg
+
+# Group by screen within the file
+figma-reader screenshot --node-id 1:3595 --screen today
 ```
 
-Output in `.figma-reader/<file>/<node>/screenshot.<format>`, grouped per Figma file just like `extract`.
+Output in `.figma-reader/<file>/[<screen>/]<node>/screenshot.<format>`, grouped per Figma file (and per `--screen`) just like `extract`.
 
 | Flag | Description | Default |
 |---|---|---|
 | `--scale N` | Image scale factor (1-4) | `2` |
 | `--format FMT` | Image format: `png`, `jpg`, `svg`, `pdf` | `png` |
+| `--screen NAME` | Nest output under a screen subfolder: `<file>/<screen>/<node>` | none |
 | `--name NAME` | Override the output folder name | from Figma |
 
 ### `audit`

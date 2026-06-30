@@ -239,12 +239,12 @@ figma-reader extract "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
 figma-reader extract --node-id 1:3595
 figma-reader extract --node-id 1:3595 --name "MyButton"
 
-# Group by screen within the file with --screen
-figma-reader extract "https://www.figma.com/design/ABC123/App?node-id=1-3595" --screen today
+# Add your own subfolder inside the file with --subdir
+figma-reader extract "https://www.figma.com/design/ABC123/App?node-id=1-3595" --subdir today
 # → .figma-reader/<file>/today/<component>/
 ```
 
-Output in `.figma-reader/<file>/[<screen>/]<component>/`:
+Output in `.figma-reader/<file>/[<subdir>/]<component>/`:
 
 | File | Description |
 |---|---|
@@ -262,10 +262,10 @@ figma-reader extract "https://www.figma.com/design/BDD516/Buttons?node-id=3-50"
 # → .figma-reader/bdd516/<component>/
 ```
 
-Pass `--screen <name>` to add a screen subfolder between the file and the component, so nodes from different screens (or same-named nodes on different screens) stay separated:
+Pass `--subdir <name>` to add your own subfolder between the file and the component — name it whatever fits your project (a screen, a section, a feature). Same-named nodes in different subfolders then stay separated. It accepts a path (`a/b`) for deeper nesting:
 
 ```bash
-figma-reader extract "https://www.figma.com/design/DEF456/App?node-id=1-42" --screen today
+figma-reader extract "https://www.figma.com/design/DEF456/App?node-id=1-42" --subdir today
 # → .figma-reader/def456/today/<component>/   (or <alias>/today/… when the key is configured)
 ```
 
@@ -284,17 +284,17 @@ figma-reader screenshot --node-id 1:3595
 figma-reader screenshot --node-id 1:3595 --scale 3
 figma-reader screenshot --node-id 1:3595 --format svg
 
-# Group by screen within the file
-figma-reader screenshot --node-id 1:3595 --screen today
+# Add your own subfolder inside the file
+figma-reader screenshot --node-id 1:3595 --subdir today
 ```
 
-Output in `.figma-reader/<file>/[<screen>/]<node>/screenshot.<format>`, grouped per Figma file (and per `--screen`) just like `extract`.
+Output in `.figma-reader/<file>/[<subdir>/]<node>/screenshot.<format>`, grouped per Figma file (and per `--subdir`) just like `extract`.
 
 | Flag | Description | Default |
 |---|---|---|
 | `--scale N` | Image scale factor (1-4) | `2` |
 | `--format FMT` | Image format: `png`, `jpg`, `svg`, `pdf` | `png` |
-| `--screen NAME` | Nest output under a screen subfolder: `<file>/<screen>/<node>` | none |
+| `--subdir NAME` | Nest output under your own subfolder: `<file>/<subdir>/<node>` (accepts `a/b`) | none |
 | `--name NAME` | Override the output folder name | from Figma |
 
 ### `audit`

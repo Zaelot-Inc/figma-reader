@@ -5,8 +5,8 @@
  * Commands:
  *   init        [--url URL] [--file-key KEY]
  *   browse      [--node-id ID] [--components] [--styles]
- *   extract     --node-id <id> [--file-key KEY] [--name NAME] [--screen NAME] [--depth N] [--out DIR]
- *   screenshot  --node-id <id> [--file-key KEY] [--name NAME] [--screen NAME] [--scale N] [--format FMT] [--out DIR]
+ *   extract     --node-id <id> [--file-key KEY] [--name NAME] [--subdir NAME] [--depth N] [--out DIR]
+ *   screenshot  --node-id <id> [--file-key KEY] [--name NAME] [--subdir NAME] [--scale N] [--format FMT] [--out DIR]
  *   audit       [--node-id <id>] [--file-key KEY] [--out DIR]
  *
  * Environment:
@@ -38,7 +38,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--scale") args.scale = Number(argv[++i]);
     else if (argv[i] === "--format") args.format = argv[++i];
     else if (argv[i] === "--out") args.outDir = argv[++i];
-    else if (argv[i] === "--screen") args.screen = argv[++i];
+    else if (argv[i] === "--subdir") args.subdir = argv[++i];
     else if (argv[i] === "--name") args.name = argv[++i];
     else if (argv[i] === "--source") args.sourceRoot = argv[++i];
     else if (argv[i] === "--model") args.claudeModel = argv[++i];
@@ -88,7 +88,7 @@ Options:
   --node-id ID      Figma node ID (supports both 1-234 and 1:234 formats)
   --url URL         Figma URL (init/browse — extracts file key and node ID)
   --name NAME       Override component name (extract/screenshot only)
-  --screen NAME     Nest output under a screen subfolder: <alias>/<screen>/<component> (extract/screenshot)
+  --subdir NAME     Nest output under a subfolder: <alias>/<subdir>/<component> (extract/screenshot; accepts a/b path)
   --depth N         Node tree traversal depth (default: 10 extract, 6 audit, 2 browse)
   --scale N         Image scale factor 1-4 (screenshot only, default: 2)
   --format FMT      Image format: png | jpg | svg | pdf (screenshot only, default: png)
@@ -275,9 +275,9 @@ async function main() {
       fileKey,
       nodeId,
       outDir,
-      // Separate output per file (and screen) so outputs don't collide.
-      // Nests as <alias-or-key>[/<screen>]/<node-slug>.
-      namespace: [fileAlias || fileKey, args.screen].filter(Boolean).join("/"),
+      // Separate output per file (and optional --subdir) so outputs don't collide.
+      // Nests as <alias-or-key>[/<subdir>]/<node-slug>.
+      namespace: [fileAlias || fileKey, args.subdir].filter(Boolean).join("/"),
       name: args.name,
       scale: args.scale || 2,
       format: args.format || "png",
@@ -317,10 +317,10 @@ async function main() {
       fileKey,
       nodeId,
       outDir,
-      // Separate output per file (and screen) so components don't collide.
+      // Separate output per file (and optional --subdir) so components don't collide.
       // Uses the alias (e.g. "icons") when available, else the raw file key,
-      // optionally nested under a --screen subfolder.
-      namespace: [fileAlias || fileKey, args.screen].filter(Boolean).join("/"),
+      // optionally nested under a --subdir subfolder.
+      namespace: [fileAlias || fileKey, args.subdir].filter(Boolean).join("/"),
       name: args.name,
       depth: args.depth || config.depth?.extract || 10,
       ai: args.ai || false,

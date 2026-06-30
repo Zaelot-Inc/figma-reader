@@ -82,7 +82,9 @@ export async function screenshot({ figma, fileKey, nodeId, outDir, namespace, na
   const imageBuffer = await figma.getImage(fileKey, nodeId, { scale, format });
   log(`  Screenshot: ${Math.round(imageBuffer.length / 1024)}KB`);
 
-  const baseDir = namespace ? join(outDir, slugify(namespace)) : outDir;
+  const baseDir = namespace
+    ? join(outDir, ...namespace.split("/").filter(Boolean).map(slugify))
+    : outDir;
   const nodeDir = join(baseDir, slug);
   if (!existsSync(nodeDir)) mkdirSync(nodeDir, { recursive: true });
 

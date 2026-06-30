@@ -168,7 +168,9 @@ export async function extract({ figma, claude, fileKey, nodeId, outDir, namespac
   }
 
   // Step 3: Write output files
-  const baseDir = namespace ? join(outDir, slugify(namespace)) : outDir;
+  const baseDir = namespace
+    ? join(outDir, ...namespace.split("/").filter(Boolean).map(slugify))
+    : outDir;
   const componentDir = join(baseDir, slug);
   if (!existsSync(componentDir)) mkdirSync(componentDir, { recursive: true });
 

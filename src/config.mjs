@@ -106,7 +106,7 @@ export function resolveFileKey(source = {}, config = {}) {
   // 6. Legacy single key.
   if (config.fileKey) return { fileKey: config.fileKey, alias: null };
 
-  // 7. Exactly one named key — no ambiguity, use it.
+  // 6. Exactly one named key — no ambiguity, use it.
   if (aliases.length === 1) return { fileKey: fileKeys[aliases[0]], alias: aliases[0] };
 
   return { fileKey: null, alias: null };

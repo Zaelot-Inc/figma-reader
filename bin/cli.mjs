@@ -3,10 +3,11 @@
  * figma-reader CLI
  *
  * Commands:
- *   init     [--url URL] [--file-key KEY]
- *   browse   [--node-id ID] [--components] [--styles]
- *   extract  --node-id <id> [--file-key KEY] [--name NAME] [--depth N] [--out DIR]
- *   audit    [--node-id <id>] [--file-key KEY] [--out DIR]
+ *   init        [--url URL] [--file-key KEY]
+ *   browse      [--node-id ID] [--components] [--styles]
+ *   extract     --node-id <id> [--file-key KEY] [--name NAME] [--subdir NAME] [--depth N] [--out DIR]
+ *   screenshot  --node-id <id> [--file-key KEY] [--name NAME] [--subdir NAME] [--scale N] [--format FMT] [--out DIR]
+ *   audit       [--node-id <id>] [--file-key KEY] [--out DIR]
  *
  * Environment:
  *   FIGMA_TOKEN        — Figma Personal Access Token (required)
@@ -18,10 +19,11 @@
 
 import { createFigmaClient } from "../src/figma.mjs";
 import { createClaudeClient } from "../src/claude.mjs";
-import { loadConfig } from "../src/config.mjs";
+import { loadConfig, resolveFileKey } from "../src/config.mjs";
 import { extract } from "../src/extract.mjs";
 import { audit } from "../src/audit.mjs";
 import { browse } from "../src/browse.mjs";
+import { screenshot } from "../src/screenshot.mjs";
 import { init } from "../src/init.mjs";
 
 // ── Parse CLI args ────────────────────────────────────────────
@@ -30,9 +32,13 @@ function parseArgs(argv) {
   const args = {};
   for (let i = 3; i < argv.length; i++) {
     if (argv[i] === "--file-key") args.fileKey = argv[++i];
+    else if (argv[i] === "--file") args.file = argv[++i];
     else if (argv[i] === "--node-id") args.nodeId = argv[++i];
     else if (argv[i] === "--depth") args.depth = Number(argv[++i]);
+    else if (argv[i] === "--scale") args.scale = Number(argv[++i]);
+    else if (argv[i] === "--format") args.format = argv[++i];
     else if (argv[i] === "--out") args.outDir = argv[++i];
+    else if (argv[i] === "--subdir") args.subdir = argv[++i];
     else if (argv[i] === "--name") args.name = argv[++i];
     else if (argv[i] === "--source") args.sourceRoot = argv[++i];
     else if (argv[i] === "--model") args.claudeModel = argv[++i];
@@ -63,23 +69,29 @@ function printUsage() {
 figma-reader — Extract and audit Figma design systems
 
 Usage:
-  figma-reader init    [--url <figma-url>] [--file-key KEY]
-  figma-reader browse  [--node-id ID] [--components] [--styles]
-  figma-reader extract <figma-url> | --node-id <id> [options]
-  figma-reader audit   [options]
+  figma-reader init       [--url <figma-url>] [--file-key KEY]
+  figma-reader browse     [--node-id ID] [--components] [--styles]
+  figma-reader extract    <figma-url> | --node-id <id> [options]
+  figma-reader screenshot <figma-url> | --node-id <id> [options]
+  figma-reader audit      [options]
 
 Commands:
-  init      Create .figma-reader.json config (scans project for design system files)
-  browse    Navigate a Figma file: pages, frames, components, styles
-  extract   Fetch a Figma component, clean it into a blueprint, export screenshot
-  audit     Compare a Figma DLS against your codebase's design system
+  init        Create .figma-reader.json config (scans project for design system files)
+  browse      Navigate a Figma file: pages, frames, components, styles
+  extract     Fetch a Figma component, clean it into a blueprint, export screenshot
+  screenshot  Export only the rendered image of a node (no blueprint, no raw JSON)
+  audit       Compare a Figma DLS against your codebase's design system
 
 Options:
   --file-key KEY    Figma file key (or set in .figma-reader.json)
+  --file ALIAS      Select a named file key from .figma-reader.json (fileKeys)
   --node-id ID      Figma node ID (supports both 1-234 and 1:234 formats)
   --url URL         Figma URL (init/browse — extracts file key and node ID)
-  --name NAME       Override component name (extract only)
+  --name NAME       Override component name (extract/screenshot only)
+  --subdir NAME     Nest output under a subfolder: <alias>/<subdir>/<component> (extract/screenshot; accepts a/b path)
   --depth N         Node tree traversal depth (default: 10 extract, 6 audit, 2 browse)
+  --scale N         Image scale factor 1-4 (screenshot only, default: 2)
+  --format FMT      Image format: png | jpg | svg | pdf (screenshot only, default: png)
   --out DIR         Output directory (default: .figma-reader/)
   --source DIR      Source root for codebase files (audit only)
   --model MODEL     Claude model (default: claude-sonnet-4-6)
@@ -115,6 +127,14 @@ Examples:
 
   # Or use --node-id (file-key from .figma-reader.json)
   figma-reader extract --node-id 1:3595
+
+  # Export only the screenshot (no blueprint / raw JSON)
+  figma-reader screenshot "https://www.figma.com/design/ABC123/My-DLS?node-id=1-3595"
+  figma-reader screenshot --node-id 1:3595 --scale 3 --format png
+
+  # Pick a named file when several are configured (fileKeys in config)
+  figma-reader browse --file icons
+  figma-reader extract --file icons --node-id 1:42
 
   # Audit DLS against codebase
   figma-reader audit
@@ -172,18 +192,26 @@ async function main() {
   if (args.command === "browse") {
     const { parseFigmaUrl } = await import("../src/browse.mjs");
 
-    let fileKey = args.fileKey || config.fileKey;
+    let urlFileKey = null;
     let nodeId = args.nodeId;
 
     // Support passing a URL as positional arg
     if (args._positional && args._positional.includes("figma.com")) {
       const parsed = parseFigmaUrl(args._positional);
-      fileKey = fileKey || parsed.fileKey;
+      urlFileKey = parsed.fileKey;
       nodeId = nodeId || parsed.nodeId;
     }
 
+    let fileKey;
+    try {
+      ({ fileKey } = resolveFileKey({ fileKey: args.fileKey, urlFileKey, alias: args.file }, config));
+    } catch (e) {
+      log(`Error: ${e.message}`);
+      process.exit(1);
+    }
+
     if (!fileKey) {
-      log("Error: --file-key is required (or set fileKey in .figma-reader.json, or pass a Figma URL)");
+      log("Error: no Figma file key. Pass --file-key KEY, --file <alias>, a Figma URL, or set fileKey/fileKeys in .figma-reader.json");
       process.exit(1);
     }
 
@@ -201,28 +229,68 @@ async function main() {
     return;
   }
 
-  // Commands below need file key
-  const fileKey = args.fileKey || config.fileKey;
+  // Commands below (extract, screenshot, audit) need a file key.
+  // For extract/screenshot, a Figma URL (via --url or positional) can supply key + node.
+  let urlFileKey = null;
+  if (args.command === "extract" || args.command === "screenshot") {
+    const urlInput = args.url || (args._positional && args._positional.includes("figma.com") ? args._positional : null);
+    if (urlInput) {
+      const { parseFigmaUrl } = await import("../src/browse.mjs");
+      const parsed = parseFigmaUrl(urlInput);
+      if (parsed.fileKey) urlFileKey = parsed.fileKey;
+      if (!args.nodeId && parsed.nodeId) args.nodeId = parsed.nodeId;
+    }
+  }
+
+  let fileKey, fileAlias;
+  try {
+    ({ fileKey, alias: fileAlias } = resolveFileKey({ fileKey: args.fileKey, urlFileKey, alias: args.file }, config));
+  } catch (e) {
+    log(`Error: ${e.message}`);
+    process.exit(1);
+  }
   const model = args.claudeModel || config.claudeModel;
 
   if (!fileKey) {
-    log("Error: --file-key is required (or set fileKey in .figma-reader.json)");
+    log("Error: no Figma file key. Pass --file-key KEY, --file <alias>, a Figma URL, or set fileKey/fileKeys in .figma-reader.json");
     process.exit(1);
   }
 
   const outDir = args.outDir || config.outDir || ".figma-reader";
 
+  // ── screenshot ──
+  if (args.command === "screenshot") {
+    // File key and node ID were already resolved above (incl. from any URL).
+    let nodeId = args.nodeId;
+    if (!nodeId) {
+      log("Error: --node-id is required for screenshot (or pass a Figma URL with node-id)");
+      log("  figma-reader screenshot --url \"https://www.figma.com/design/KEY/Name?node-id=1-234\"");
+      log("  figma-reader screenshot \"https://www.figma.com/design/KEY/Name?node-id=1-234\"");
+      process.exit(1);
+    }
+    nodeId = nodeId.replace(/-/g, ":");
+
+    const result = await screenshot({
+      figma,
+      fileKey,
+      nodeId,
+      outDir,
+      // Separate output per file (and optional --subdir) so outputs don't collide.
+      // Nests as <alias-or-key>[/<subdir>]/<node-slug>.
+      namespace: [fileAlias || fileKey, args.subdir].filter(Boolean).join("/"),
+      name: args.name,
+      scale: args.scale || 2,
+      format: args.format || "png",
+      log,
+    });
+
+    process.stdout.write(JSON.stringify(result));
+    return;
+  }
+
   // ── extract ──
   if (args.command === "extract") {
-    // Accept a Figma URL via --url or as a positional argument
-    const urlInput = args.url || (args._positional && args._positional.includes("figma.com") ? args._positional : null);
-    if (urlInput) {
-      const { parseFigmaUrl } = await import("../src/browse.mjs");
-      const parsed = parseFigmaUrl(urlInput);
-      if (!args.fileKey && parsed.fileKey) args.fileKey = parsed.fileKey;
-      if (!args.nodeId && parsed.nodeId) args.nodeId = parsed.nodeId;
-    }
-
+    // File key and node ID were already resolved above (incl. from any URL).
     let nodeId = args.nodeId;
     if (!nodeId) {
       log("Error: --node-id is required for extract (or pass a Figma URL with node-id)");
@@ -249,6 +317,10 @@ async function main() {
       fileKey,
       nodeId,
       outDir,
+      // Separate output per file (and optional --subdir) so components don't collide.
+      // Uses the alias (e.g. "icons") when available, else the raw file key,
+      // optionally nested under a --subdir subfolder.
+      namespace: [fileAlias || fileKey, args.subdir].filter(Boolean).join("/"),
       name: args.name,
       depth: args.depth || config.depth?.extract || 10,
       ai: args.ai || false,
